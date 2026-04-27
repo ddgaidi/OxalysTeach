@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isTechnicienInFablab } from "@/src/lib/technicienAccess";
 
 type LoginPayload = {
   username?: string;
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
     const supabaseService = createClient(supabaseUrl, serviceKey ?? anonKey);
     const { data: techRow, error: techError } = await supabaseService
       .from("technicien")
-      .select("id, prenom, nom, fablab_id")
+      .select("id, prenom, nom")
       .eq("id", authUserId)
       .maybeSingle();
 
@@ -105,8 +106,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "not_technician" }, { status: 401 });
     }
 
-    // Vérifie que le technicien appartient à l'établissement choisi
-    if (techRow.fablab_id !== schoolId) {
+    const allowed = await isTechnicienInFablab(supabaseService, authUserId, schoolId);
+    if (!allowed) {
       return NextResponse.json(
         { ok: false, error: "school_mismatch" },
         { status: 403 },

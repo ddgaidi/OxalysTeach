@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isTechnicienInFablab } from "@/src/lib/technicienAccess";
 
 const DEFAULT_MONITOR_BASE = "https://oxalys-monitor.vercel.app";
 
@@ -58,11 +59,16 @@ export async function GET(request: NextRequest) {
 
   const { data: techRow, error: techError } = await supabaseAdmin
     .from("technicien")
-    .select("id, fablab_id")
+    .select("id")
     .eq("id", userId)
     .maybeSingle();
 
-  if (techError || !techRow || techRow.fablab_id !== schoolId) {
+  if (techError || !techRow) {
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const allowed = await isTechnicienInFablab(supabaseAdmin, userId, schoolId);
+  if (!allowed) {
     return NextResponse.redirect(loginUrl);
   }
 

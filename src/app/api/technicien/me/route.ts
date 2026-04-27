@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("technicien")
-    .select(`id, prenom, nom, ${imageCol}, fablab_id`)
+    .select(`id, prenom, nom, ${imageCol}`)
     .eq("id", userId)
     .maybeSingle();
 

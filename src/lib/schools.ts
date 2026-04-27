@@ -75,10 +75,24 @@ export async function fetchTeachers(fablabId: string): Promise<Teacher[]> {
 }
 
 export async function fetchTechnicians(fablabId: string): Promise<Technician[]> {
+  const { data: links, error: lErr } = await supabase
+    .from("technicien_fablabs")
+    .select("technicien_id")
+    .eq("fablab_id", fablabId);
+
+  if (lErr) {
+    console.error("Error fetching technicien_fablabs:", lErr);
+    return [];
+  }
+  if (!links?.length) {
+    return [];
+  }
+
+  const ids = links.map((l) => l.technicien_id as string);
   const { data, error } = await supabase
     .from("technicien")
     .select("id, nom, prenom")
-    .eq("fablab_id", fablabId)
+    .in("id", ids)
     .order("nom", { ascending: true });
 
   if (error) {

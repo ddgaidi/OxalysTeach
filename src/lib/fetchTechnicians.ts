@@ -21,16 +21,34 @@ export async function fetchTechniciansByFablabId(
 ): Promise<TechnicianRecord[]> {
   const supabase = buildSupabaseClient();
 
-  const { data, error } = await supabase
-    .from("technicien")
-    .select("id, prenom, nom, image, fablab_id, created_at")
-    .eq("fablab_id", fablabId)
-    .order("nom", { ascending: true });
+  const { data: links, error: linkErr } = await supabase
+    .from("technicien_fablabs")
+    .select("technicien_id")
+    .eq("fablab_id", fablabId);
 
-  if (error) {
-    console.error("[fetchTechnicians] Supabase error:", error);
+  if (linkErr) {
+    console.error("[fetchTechnicians] technicien_fablabs:", linkErr);
+    return [];
+  }
+  if (!links?.length) {
     return [];
   }
 
-  return (data as TechnicianRecord[]) ?? [];
+  const ids = [...new Set(links.map((l) => l.technicien_id as string))];
+
+  const { data, error } = await supabase
+    .from("technicien")
+    .select("id, prenom, nom, image, created_at")
+    .in("id", ids)
+    .order("nom", { ascending: true });
+
+  if (error) {
+    console.error("[fetchTechnicians] technicien:", error);
+    return [];
+  }
+
+  return (data ?? []).map((row) => ({
+    ...row,
+    fablab_id: fablabId,
+  })) as TechnicianRecord[];
 }
