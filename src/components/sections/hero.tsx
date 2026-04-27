@@ -20,7 +20,20 @@ export function Hero() {
             className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/5 px-3 py-1 text-sm font-medium text-orange-600 dark:text-orange-400"
           >
             <Sparkles size={16} />
-            <span>Nouveauté : OxalysTeach v1.0 est là !</span>
+            <span className="flex items-center gap-1.5">
+              Nouveauté :
+              <img
+                src="/oxalys-teach.png"
+                alt="OxalysTeach"
+                className="h-4 w-auto inline-block align-middle dark:hidden"
+              />
+              <img
+                src="/oxalys-teach-light.png"
+                alt="OxalysTeach"
+                className="h-4 w-auto inline-block align-middle hidden dark:block"
+              />
+              v1.0 est là !
+            </span>
           </motion.div>
 
           <motion.h1

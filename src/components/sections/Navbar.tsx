@@ -2,10 +2,9 @@
 
 import * as React from "react";
 import { Moon, Sun, Monitor, GraduationCap, LogIn, LayoutDashboard, Home, Users } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/src/components/providers/theme-provider";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import Image from "next/image";
 
 export function Navbar() {
   const { setTheme, theme } = useTheme();
@@ -28,7 +27,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/", label: "Accueil", icon: Home },
     { href: "#teachers", label: "Équipe", icon: Users },
-    { href: "https://oxalys-monitor.vercel.app", label: "Moniteur", icon: Monitor, external: true },
+    { href: "/api/monitor-redirect", label: "Moniteur", icon: Monitor, external: false },
   ];
 
   return (
@@ -48,16 +47,16 @@ export function Navbar() {
           className="flex items-center gap-4"
         >
           <Link href="/" className="group relative flex items-center gap-2">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-full bg-orange-500/30 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-500 animate-pulse-glow" />
-              <Image
-                src="/logo_teach.png"
-                alt="OxalysTeach"
-                width={90}
-                height={28}
-                className="relative rounded-full transition-transform duration-300 group-hover:scale-105"
-              />
-            </div>
+            <img
+              src="/oxalys-teach.png"
+              alt="OxalysTeach"
+              className="h-8 w-auto relative transition-transform duration-300 group-hover:scale-105 dark:hidden"
+            />
+            <img
+              src="/oxalys-teach-light.png"
+              alt="OxalysTeach"
+              className="h-8 w-auto relative transition-transform duration-300 group-hover:scale-105 hidden dark:block"
+            />
           </Link>
 
           <AnimatePresence>

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OxalysTeach - Le futur de l'enseignement",
+  title: "OxalysTeach",
   description: "Plateforme moderne pour les professeurs passionnés",
 };
 

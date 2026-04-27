@@ -16,12 +16,11 @@ import {
   Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
-import Link from "next/link";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/src/components/providers/theme-provider";
 import { fetchFablabs, School as SchoolType } from "@/src/lib/schools";
 
 export default function LoginPage() {
-  const { setTheme, theme } = useTheme();
+  const { setTheme, theme, resolvedTheme } = useTheme();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [selectedSchool, setSelectedSchool] = useState<{ id: string; name: string } | null>(null);
@@ -90,12 +89,23 @@ export default function LoginPage() {
     });
 
     if (!response.ok) {
-      setError("Identifiants invalides. Utilisez admin / 1234.");
+      if (response.status === 403) {
+        setError(`Vous n'êtes pas autorisé à accéder à « ${selectedSchool.name} ».`);
+      } else {
+        setError("Identifiants invalides.");
+      }
       setIsLoading(false);
       return;
     }
 
     setIsLoading(false);
+    if (typeof window !== "undefined") {
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (next === "monitor") {
+        window.location.assign("/api/monitor-redirect");
+        return;
+      }
+    }
     router.push("/");
     router.refresh();
   };
@@ -156,23 +166,24 @@ export default function LoginPage() {
             transition={{ delay: 0.15, duration: 0.5 }}
             className="mb-8 text-center"
           >
-            <div className="inline-flex items-center justify-center mb-5">
-              <div className="relative">
-                <div className="absolute inset-0 rounded-2xl bg-orange-500/40 blur-xl animate-pulse-glow" />
-                <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-red-600 shadow-lg shadow-orange-500/30">
-                  <GraduationCap size={28} className="text-white" />
-                </div>
-              </div>
-            </div>
 
             <div className="inline-flex items-center gap-1.5 mb-3 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-orange-400">
               <Sparkles className="h-3 w-3" />
               Connexion sécurisée
             </div>
 
-            <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-              Oxalys<span className="text-gradient">Teach</span>
-            </h1>
+            <div className="flex justify-center mb-2">
+              <img
+                  src="/oxalys-teach.png"
+                  alt="OxalysTeach"
+                  className="h-16 w-auto object-contain object-left dark:hidden"
+              />
+              <img
+                  src="/oxalys-teach-light.png"
+                  alt="OxalysTeach"
+                  className="h-16 w-auto object-contain object-left hidden dark:block"
+              />
+            </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Accédez à votre espace pédagogique</p>
           </motion.div>
 
@@ -297,7 +308,7 @@ export default function LoginPage() {
                 <label className="text-xs font-semibold uppercase tracking-widest text-slate-500">
                   Mot de passe
                 </label>
-                <span className="text-[10px] text-slate-400">Demo: 1234</span>
+                <span className="text-[10px] text-slate-400">Accès admin : 1234</span>
               </div>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -353,26 +364,17 @@ export default function LoginPage() {
             className="mt-6 pt-5 border-t border-white/5 text-center"
           >
             <p className="text-xs text-slate-400">
-              Accès démo :{" "}
+              Accès admin :{" "}
               <span className="font-bold text-orange-500">admin</span>
               {" / "}
               <span className="font-bold text-orange-500">1234</span>
+              <span className="block mt-1 text-[10px] text-slate-500">
+                Ou connectez-vous avec vos identifiants technicien
+              </span>
             </p>
           </motion.div>
         </div>
       </motion.div>
-
-      {/* Bottom link */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.8 }}
-        className="mt-6 text-xs text-slate-400"
-      >
-        <Link href="/" className="hover:text-orange-400 transition-colors">
-          ← Retour à l'accueil
-        </Link>
-      </motion.p>
     </div>
   );
 }

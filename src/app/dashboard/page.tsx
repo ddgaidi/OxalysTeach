@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   GraduationCap,
   Home,
@@ -29,13 +29,18 @@ import {
   Wrench,
   Mail,
   BookOpen,
+  X,
+  CheckCircle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { SensorCard } from "@/src/components/dashboard/sensor-card";
+import { getClientCookie } from "@/src/lib/clientCookie";
 import { fetchFablabs, getStatusColor, AirStatus, School, SensorData, Teacher, Technician } from "@/src/lib/schools";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/src/components/providers/theme-provider";
 import {
   AreaChart,
   Area,
@@ -89,6 +94,22 @@ export default function DashboardPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [isLoadingPersonnel, setIsLoadingPersonnel] = useState(false);
+  const [loggedUserName, setLoggedUserName] = useState("Administrateur");
+  const [loggedUserRole, setLoggedUserRole] = useState("admin");
+  const [loggedUserAvatar, setLoggedUserAvatar] = useState<string | null>(null);
+  // Password modal
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwShowCurrent, setPwShowCurrent] = useState(false);
+  const [pwShowNew, setPwShowNew] = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwError, setPwError] = useState("");
+  const [pwSuccess, setPwSuccess] = useState(false);
+  // Avatar upload
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadSchoolData = useCallback(async (isManual = false) => {
     const name = document.cookie
@@ -134,6 +155,32 @@ export default function DashboardPage() {
     const intervalId = window.setInterval(() => loadSchoolData(), 20_000);
     return () => window.clearInterval(intervalId);
   }, [loadSchoolData]);
+
+  useEffect(() => {
+    const rawName = getClientCookie("user_name");
+    const rawRole = getClientCookie("user_role");
+    if (rawName) {
+      try {
+        setLoggedUserName(decodeURIComponent(rawName));
+      } catch {
+        setLoggedUserName(rawName);
+      }
+    }
+    if (rawRole) setLoggedUserRole(rawRole);
+  }, []);
+
+  // Charge l'avatar du technicien connecté
+  useEffect(() => {
+    if (loggedUserRole !== "technician") return;
+    const userId = getClientCookie("user_id");
+    if (!userId) return;
+    fetch("/api/technicien/me", { credentials: "include", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { error?: string; image?: string | null } | null) => {
+        if (data?.image) setLoggedUserAvatar(data.image);
+      })
+      .catch(console.error);
+  }, [loggedUserRole]);
 
   useEffect(() => {
     if (activeTab !== "personnel") return;
@@ -194,12 +241,99 @@ export default function DashboardPage() {
   };
 
   const handleLogout = async () => { await fetch("/api/logout", { method: "POST" }); router.push("/login"); router.refresh(); };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwNew !== pwConfirm) { setPwError("Les mots de passe ne correspondent pas."); return; }
+    if (pwNew.length < 6) { setPwError("Le mot de passe doit contenir au moins 6 caractères."); return; }
+    setPwLoading(true);
+    setPwError("");
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: pwCurrent, newPassword: pwNew }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setPwError(data.error ?? "Erreur inconnue."); return; }
+      setPwSuccess(true);
+      setTimeout(() => {
+        setShowPasswordModal(false);
+        setPwSuccess(false);
+        setPwCurrent(""); setPwNew(""); setPwConfirm("");
+      }, 2000);
+    } finally {
+      setPwLoading(false);
+    }
+  };
+
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setPwError("");
+    setPwCurrent(""); setPwNew(""); setPwConfirm("");
+    setPwSuccess(false);
+  };
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/technicien/avatar", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(
+          (data as { error?: string }).error ||
+            "Erreur d’envoi de la photo. Vérifiez la clé service Supabase, le bucket et la colonne image.",
+        );
+        return;
+      }
+
+      if ((data as { url?: string | null }).url) {
+        setLoggedUserAvatar((data as { url: string }).url);
+        return;
+      }
+
+      const meRes = await fetch("/api/technicien/me", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (meRes.ok) {
+        const meData = (await meRes.json()) as { image?: string | null; error?: string };
+        if (meData.image) setLoggedUserAvatar(meData.image);
+      }
+
+      setIsProfileMenuOpen(false);
+
+    } catch (err) {
+      console.error(err);
+      alert("Erreur réseau");
+    } finally {
+      setAvatarUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
   const sensors = currentSchool?.sensors || [];
 
   const statValues = { sensors: sensors.length, co2: avg.co2, voc: avg.voc, temp: avg.temp, hum: avg.hum };
 
-  const chartGridColor = "rgba(255,255,255,0.04)";
-  const chartTooltipStyle = { backgroundColor: "#0d0d1a", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", fontSize: "12px", color: "#e2e8f0" };
+  const isDark = theme === "dark";
+  const chartGridColor = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)";
+  const chartTickStyle = { fontSize: 9, fill: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.4)" };
+  const chartTooltipStyle = isDark
+    ? { backgroundColor: "#0d0d1a", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", fontSize: "12px", color: "#e2e8f0" }
+    : { backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.10)", borderRadius: "12px", fontSize: "12px", color: "#1e293b" };
 
   return (
     <div className="flex min-h-screen bg-slate-100 dark:bg-[#05050f] overflow-x-hidden text-slate-900 dark:text-slate-100 transition-colors duration-300">
@@ -211,18 +345,18 @@ export default function DashboardPage() {
 
       {/* SIDEBAR */}
       <aside className="hidden lg:flex w-68 flex-col bg-white dark:bg-black/40 backdrop-blur-2xl border-r border-slate-200 dark:border-white/5 sticky top-0 h-screen z-10" style={{ width: "272px" }}>
-        {/* Logo */}
         <div className="p-5 border-b border-slate-100 dark:border-white/5">
-          <Link href="/" className="group flex items-center gap-3">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-xl bg-orange-500/30 blur-md opacity-0 group-hover:opacity-100 transition-opacity animate-pulse-glow" />
-              <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-red-600 shadow-lg shadow-orange-500/25">
-                <GraduationCap size={18} className="text-white" />
-              </div>
-            </div>
-            <span className="text-base font-black tracking-tight text-white">
-              Oxalys<span className="text-gradient">Teach</span>
-            </span>
+          <Link href="/" className="group flex items-center">
+            <img
+              src="/oxalys-teach.png"
+              alt="OxalysTeach"
+              className="h-8 w-auto transition-transform duration-300 group-hover:scale-105 dark:hidden"
+            />
+            <img
+              src="/oxalys-teach-light.png"
+              alt="OxalysTeach"
+              className="h-8 w-auto transition-transform duration-300 group-hover:scale-105 hidden dark:block"
+            />
           </Link>
         </div>
 
@@ -271,12 +405,12 @@ export default function DashboardPage() {
             {localSensors.map((sensor, index) => (
               <div key={sensor.id}>
                 {isEditingSensors ? (
-                  <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-white/3 border border-white/5">
+                  <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-slate-100 dark:bg-white/3 border border-slate-200 dark:border-white/5">
                     <div className="flex flex-col gap-0.5">
-                      <button onClick={() => handleMoveSensor(index, "up")} disabled={index === 0} className="p-0.5 text-white/30 hover:text-orange-400 disabled:opacity-20 transition-colors">
+                      <button onClick={() => handleMoveSensor(index, "up")} disabled={index === 0} className="p-0.5 text-slate-400 dark:text-white/30 hover:text-orange-400 disabled:opacity-20 transition-colors">
                         <ArrowUp size={10} />
                       </button>
-                      <button onClick={() => handleMoveSensor(index, "down")} disabled={index === localSensors.length - 1} className="p-0.5 text-white/30 hover:text-orange-400 disabled:opacity-20 transition-colors">
+                      <button onClick={() => handleMoveSensor(index, "down")} disabled={index === localSensors.length - 1} className="p-0.5 text-slate-400 dark:text-white/30 hover:text-orange-400 disabled:opacity-20 transition-colors">
                         <ArrowDown size={10} />
                       </button>
                     </div>
@@ -284,7 +418,7 @@ export default function DashboardPage() {
                       type="text"
                       value={sensor.name}
                       onChange={(e) => handleRenameSensor(sensor.id, e.target.value)}
-                      className="flex-1 bg-transparent text-xs font-medium text-white/70 focus:outline-none focus:text-orange-400 transition-colors"
+                      className="flex-1 bg-transparent text-xs font-medium text-slate-600 dark:text-white/70 focus:outline-none focus:text-orange-400 transition-colors"
                     />
                   </div>
                 ) : (
@@ -293,7 +427,7 @@ export default function DashboardPage() {
                     className={`group w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-xs relative ${
                       activeTab === "sensor-detail" && selectedSensorId === sensor.id
                         ? "text-orange-400 bg-orange-500/10 border border-orange-500/15"
-                        : "text-white/35 hover:text-white/60 hover:bg-white/4"
+                        : "text-slate-500 dark:text-white/35 hover:text-slate-700 dark:hover:text-white/60 hover:bg-slate-100 dark:hover:bg-white/4"
                     }`}
                   >
                     <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${sensor.status === "good" ? "bg-emerald-500" : sensor.status === "warning" ? "bg-orange-500 animate-pulse" : "bg-red-500 animate-pulse"}`} />
@@ -308,7 +442,7 @@ export default function DashboardPage() {
           <p className="text-[9px] uppercase font-bold text-slate-400 dark:text-white/20 px-3 pt-5 pb-1 tracking-widest">Navigation</p>
           <Link
             href="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-white/40 hover:text-white/70 hover:bg-white/5 transition-all"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-500 dark:text-white/40 hover:text-slate-700 dark:hover:text-white/70 hover:bg-slate-100 dark:hover:bg-white/5 transition-all"
           >
             <Home size={16} />
             Retour à l'accueil
@@ -316,43 +450,72 @@ export default function DashboardPage() {
         </nav>
 
         {/* Profile */}
-        <div className="p-3 border-t border-white/5 relative">
+        <div className="p-3 border-t border-slate-200 dark:border-white/5 relative">
           <button
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-            className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-white/5 transition-all group text-left"
+            className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all group text-left"
           >
-            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-orange-500/30 to-red-500/20 border border-orange-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <User size={16} className="text-orange-400" />
+            <div className="h-9 w-9 rounded-full border border-orange-500/20 overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
+              {loggedUserAvatar ? (
+                <img src={loggedUserAvatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-orange-500/30 to-red-500/20 flex items-center justify-center">
+                  <User size={16} className="text-orange-400" />
+                </div>
+              )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white truncate">Administrateur</p>
-              <p className="text-[9px] text-white/30 truncate">admin@oxalysteach.fr</p>
+              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{loggedUserName}</p>
+              <p className="text-[9px] text-slate-500 dark:text-white/30 truncate capitalize">
+                {loggedUserRole === "technician" ? "Technicien FabLab" : "Administrateur"}
+              </p>
             </div>
           </button>
 
           <AnimatePresence>
             {isProfileMenuOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsProfileMenuOpen(false)} />
+                <div className="fixed inset-0 z-40 cursor-pointer" onClick={() => setIsProfileMenuOpen(false)} />
                 <motion.div
                   initial={{ opacity: 0, y: 8, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                  className="absolute bottom-full left-3 right-3 mb-2 bg-[#0d0d1a] rounded-2xl border border-white/8 shadow-[0_20px_60px_rgba(0,0,0,0.6)] z-50 overflow-hidden"
+                  className="absolute bottom-full left-3 right-3 mb-2 bg-white dark:bg-[#0d0d1a] rounded-2xl border border-slate-200 dark:border-white/8 shadow-[0_20px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] z-50 overflow-hidden"
                 >
                   <div className="p-1.5 space-y-0.5">
-                    {[
-                      { icon: Key, label: "Modifier le mot de passe", color: "text-blue-400 bg-blue-500/10" },
-                      { icon: Camera, label: "Photo de profil", color: "text-purple-400 bg-purple-500/10" },
-                    ].map(({ icon: Icon, label, color }) => (
-                      <button key={label} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-all text-left">
-                        <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${color}`}>
-                          <Icon size={13} />
-                        </div>
-                        <span className="text-xs font-medium text-white/70">{label}</span>
-                      </button>
-                    ))}
+                    {/* Modifier le mot de passe */}
+                    <button
+                      onClick={() => { setIsProfileMenuOpen(false); setShowPasswordModal(true); }}
+                      disabled={loggedUserRole !== "technician"}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <div className="h-7 w-7 rounded-lg flex items-center justify-center text-blue-400 bg-blue-500/10">
+                        <Key size={13} />
+                      </div>
+                      <span className="text-xs font-medium text-slate-700 dark:text-white/70">Modifier le mot de passe</span>
+                    </button>
+                    {/* Photo de profil */}
+                    <button
+                      onClick={() => { setIsProfileMenuOpen(false); fileInputRef.current?.click(); }}
+                      disabled={avatarUploading || loggedUserRole === "admin"}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <div className="h-7 w-7 rounded-lg flex items-center justify-center text-purple-400 bg-purple-500/10">
+                        {avatarUploading ? <RefreshCw size={13} className="animate-spin" /> : <Camera size={13} />}
+                      </div>
+                      <span className="text-xs font-medium text-slate-700 dark:text-white/70">
+                        {avatarUploading ? "Envoi en cours…" : loggedUserRole === "admin" ? "Photo (Admin non modifiable)" : "Photo de profil"}
+                      </span>
+                    </button>
                   </div>
+                  {/* Input fichier caché */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleAvatarFileChange}
+                  />
                 </motion.div>
               </>
             )}
@@ -403,7 +566,7 @@ export default function DashboardPage() {
               <AnimatePresence>
                 {isNotificationsOpen && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsNotificationsOpen(false)} />
+                    <div className="fixed inset-0 z-40 cursor-pointer" onClick={() => setIsNotificationsOpen(false)} />
                     <motion.div
                       initial={{ opacity: 0, y: 8, scale: 0.96 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -555,16 +718,16 @@ export default function DashboardPage() {
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                            <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }} />
+                            <XAxis dataKey="time" axisLine={false} tickLine={false} tick={chartTickStyle} />
+                            <YAxis axisLine={false} tickLine={false} tick={chartTickStyle} />
                             <Tooltip contentStyle={chartTooltipStyle} />
                             <Area type="monotone" dataKey="co2" name="CO2 (ppm)" stroke="#f97316" fillOpacity={1} fill="url(#colorCo2)" strokeWidth={2.5} />
                           </AreaChart>
                         ) : (
                           <BarChart data={sensorBarsData}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }} />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={chartTickStyle} />
+                            <YAxis axisLine={false} tickLine={false} tick={chartTickStyle} />
                             <Tooltip contentStyle={chartTooltipStyle} />
                             <Bar dataKey="co2" name="CO2 par capteur" fill="#f97316" radius={[6, 6, 0, 0]} opacity={0.85} />
                           </BarChart>
@@ -603,7 +766,7 @@ export default function DashboardPage() {
                           {airStatus === "Optimal" ? "92/100" : airStatus === "Dangereux" ? "64/100" : "28/100"}
                         </span>
                       </div>
-                      <div className="w-full bg-black/20 dark:bg-black/30 h-1.5 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-200 dark:bg-black/30 h-1.5 rounded-full overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: airStatus === "Optimal" ? "92%" : airStatus === "Dangereux" ? "64%" : "28%" }}
@@ -659,7 +822,7 @@ export default function DashboardPage() {
                                 <span className="text-[10px] text-orange-400 font-medium">{teacher.matiere}</span>
                               </div>
                             </div>
-                            <a href={`mailto:${teacher.email}`} className="flex items-center gap-1 text-[10px] text-white/25 hover:text-orange-400 transition-colors truncate max-w-[140px]">
+                            <a href={`mailto:${teacher.email}`} className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-white/25 hover:text-orange-400 transition-colors truncate max-w-[140px]">
                               <Mail size={9} className="shrink-0" />
                               <span className="truncate">{teacher.email}</span>
                             </a>
@@ -757,8 +920,8 @@ export default function DashboardPage() {
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                        <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }} />
+                        <XAxis dataKey="time" axisLine={false} tickLine={false} tick={chartTickStyle} />
+                        <YAxis axisLine={false} tickLine={false} tick={chartTickStyle} />
                         <Tooltip contentStyle={chartTooltipStyle} />
                         <Area type="monotone" dataKey="co2" name="CO2 (ppm)" stroke={sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "#10b981" : sensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "#f97316" : "#ef4444"} fillOpacity={1} fill="url(#colorSensor)" strokeWidth={2.5} />
                       </AreaChart>
@@ -770,6 +933,110 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* ── Modale : Modifier le mot de passe ──────────────────────────── */}
+      <AnimatePresence>
+        {showPasswordModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 cursor-pointer"
+            onClick={closePasswordModal}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.93, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.93, y: 16 }}
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-white dark:bg-[#0d0d1a] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden cursor-default"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 pt-6 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+                    <Key size={16} className="text-blue-400" />
+                  </div>
+                  <h2 className="text-sm font-black text-slate-900 dark:text-white">Modifier le mot de passe</h2>
+                </div>
+                <button onClick={closePasswordModal} className="h-7 w-7 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/10 transition-colors">
+                  <X size={13} className="text-slate-500 dark:text-white/40" />
+                </button>
+              </div>
+
+              {pwSuccess ? (
+                <div className="px-6 pb-6 flex flex-col items-center gap-3 pt-2">
+                  <CheckCircle size={40} className="text-emerald-400" />
+                  <p className="text-sm font-bold text-slate-900 dark:text-white">Mot de passe mis à jour !</p>
+                </div>
+              ) : (
+                <form onSubmit={handlePasswordChange} className="px-6 pb-6 space-y-4">
+                  {/* Mot de passe actuel */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-white/40 uppercase tracking-wide">Mot de passe actuel</label>
+                    <div className="relative">
+                      <input
+                        type={pwShowCurrent ? "text" : "password"}
+                        value={pwCurrent}
+                        onChange={(e) => setPwCurrent(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-10"
+                        placeholder="••••••••"
+                      />
+                      <button type="button" onClick={() => setPwShowCurrent(!pwShowCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/30">
+                        {pwShowCurrent ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                  {/* Nouveau mot de passe */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-white/40 uppercase tracking-wide">Nouveau mot de passe</label>
+                    <div className="relative">
+                      <input
+                        type={pwShowNew ? "text" : "password"}
+                        value={pwNew}
+                        onChange={(e) => setPwNew(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-10"
+                        placeholder="••••••••"
+                      />
+                      <button type="button" onClick={() => setPwShowNew(!pwShowNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-white/30">
+                        {pwShowNew ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                  {/* Confirmer */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-white/40 uppercase tracking-wide">Confirmer le nouveau mot de passe</label>
+                    <input
+                      type="password"
+                      value={pwConfirm}
+                      onChange={(e) => setPwConfirm(e.target.value)}
+                      required
+                      className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  {/* Erreur */}
+                  {pwError && (
+                    <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">{pwError}</p>
+                  )}
+                  {/* Submit */}
+                  <button
+                    type="submit"
+                    disabled={pwLoading}
+                    className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl py-2.5 transition-colors flex items-center justify-center gap-2"
+                  >
+                    {pwLoading ? <RefreshCw size={14} className="animate-spin" /> : null}
+                    {pwLoading ? "Mise à jour…" : "Mettre à jour"}
+                  </button>
+                </form>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

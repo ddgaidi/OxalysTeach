@@ -79,6 +79,25 @@
   * {
     @apply border-border outline-ring/50;
   }
+  :where(
+    a[href],
+    button:not(:disabled),
+    [role="button"]:not([aria-disabled="true"]):not(:disabled),
+    input[type="button"]:not(:disabled),
+    input[type="submit"]:not(:disabled),
+    input[type="reset"]:not(:disabled),
+    input[type="file"],
+    input[type="checkbox"],
+    input[type="radio"],
+    label[for],
+    select,
+    summary
+  ) {
+    cursor: pointer;
+  }
+  :where(button:disabled, input:disabled, select:disabled, [aria-disabled="true"]) {
+    cursor: not-allowed;
+  }
   body {
     @apply bg-background text-foreground;
   }

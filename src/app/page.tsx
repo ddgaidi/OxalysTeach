@@ -219,14 +219,18 @@ export default function Home() {
 
             {/* Title */}
             <motion.div variants={itemVariants} className="space-y-2">
-              <h1 className="text-5xl font-black leading-[1.05] tracking-tighter sm:text-6xl lg:text-7xl xl:text-8xl">
-                {titleWords.map((word, wi) => (
-                  <span key={wi} className={wi === 1 ? "text-gradient" : "text-slate-900 dark:text-white"}>
-                    {word}
-                    {wi === 0 ? " " : ""}
-                  </span>
-                ))}
-              </h1>
+              <div className="flex h-16 w-full max-w-[400px]">
+                <img
+                  src="/oxalys-teach.png"
+                  alt="OxalysTeach"
+                  className="h-16 w-auto object-contain object-left dark:hidden"
+                />
+                <img
+                  src="/oxalys-teach-light.png"
+                  alt="OxalysTeach"
+                  className="h-16 w-auto object-contain object-left hidden dark:block"
+                />
+              </div>
               <h2 className="text-2xl font-bold text-slate-500 dark:text-slate-400 sm:text-3xl lg:text-4xl tracking-tight">
                 {schoolName || "Le futur de l'enseignement"}
               </h2>
@@ -347,11 +351,23 @@ export default function Home() {
       <footer className="relative border-t border-slate-200 dark:border-white/5 py-10">
         <div className="mx-auto flex w-full max-w-7xl flex-col sm:flex-row items-center justify-between gap-3 px-6 lg:px-12">
           <div className="flex items-center gap-2">
-            <div className="h-5 w-5 rounded-md bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
-              <GraduationCap className="h-3 w-3 text-white" />
-            </div>
-            <p className="text-xs text-slate-500 font-medium">
-              © 2026 OxalysTeach{schoolName ? ` · ${schoolName}` : ""}
+            <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
+              © 2026
+              <img
+                src="/oxalys-teach.png"
+                alt="OxalysTeach"
+                width={72}
+                height={16}
+                className="inline-block align-middle dark:hidden"
+              />
+              <img
+                src="/oxalys-teach-light.png"
+                alt="OxalysTeach"
+                width={72}
+                height={16}
+                className="align-middle hidden dark:block"
+              />
+              {schoolName ? ` · ${schoolName}` : ""}
             </p>
           </div>
           <p className="text-xs text-slate-400 dark:text-slate-600">Interface conçue pour les établissements modernes.</p>
