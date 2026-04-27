@@ -97,7 +97,7 @@ export default function LoginPage() {
     if (!response.ok) {
       if (response.status === 403) {
         setError(
-          `Ce compte n'est pas rattaché au fablab « ${selectedSchool.name} » (vérifiez technicien_fablabs).`,
+          `Ce compte n'est pas rattaché au fablab « ${selectedSchool.name} ».`,
         );
       } else {
         setError("Identifiants invalides.");
