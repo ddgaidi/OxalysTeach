@@ -72,17 +72,9 @@ export async function getTechnicienAvatarDisplayUrl(
   return null;
 }
 
-export function isImageFileLike(
-  v: FormDataEntryValue | null,
-): v is { arrayBuffer: () => Promise<ArrayBuffer>; type: string; name?: string; size: number } {
+export function isImageFileLike(v: FormDataEntryValue | null): v is File {
   if (v == null || typeof v === "string") return false;
-  if (typeof Blob !== "undefined" && v instanceof Blob) return true;
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "arrayBuffer" in v &&
-    typeof (v as Blob).arrayBuffer === "function"
-  );
+  return typeof File !== "undefined" && v instanceof File;
 }
 
 function extFromName(name: string | undefined): string | null {

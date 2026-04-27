@@ -32,12 +32,13 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  const rawImage = (data as Record<string, unknown>)[imageCol] as string | null;
+  const row = data as unknown as Record<string, unknown>;
+  const rawImage = row[imageCol] as string | null;
 
   const image =
     rawImage != null
       ? await getTechnicienAvatarDisplayUrl(supabase, rawImage, bucket)
       : null;
 
-  return NextResponse.json({ ...data, image });
+  return NextResponse.json({ ...row, image });
 }
