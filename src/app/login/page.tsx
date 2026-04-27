@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -11,6 +11,9 @@ import {
   Moon,
   Sparkles,
   LogIn,
+  School,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
 import { useTheme } from "@/src/components/providers/theme-provider";
@@ -26,6 +29,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [selectedSchool, setSelectedSchool] = useState<{ id: string; name: string } | null>(null);
+  const [isSchoolListOpen, setIsSchoolListOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingSchools, setIsFetchingSchools] = useState(true);
   const [availableSchools, setAvailableSchools] = useState<SchoolType[]>([]);
@@ -36,6 +40,11 @@ export default function LoginPage() {
 
   const rotateX = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
   const rotateY = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
+
+  const sortedSchools = useMemo(
+    () => [...availableSchools].sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" })),
+    [availableSchools],
+  );
 
   useEffect(() => {
     async function loadSchools() {
@@ -50,14 +59,6 @@ export default function LoginPage() {
     }
     loadSchools();
   }, []);
-
-  useEffect(() => {
-    if (isFetchingSchools) return;
-    const itis = availableSchools.find((s) => s.name === ITIS_FORMATION_NAME);
-    if (itis) {
-      setSelectedSchool({ id: itis.id, name: itis.name });
-    }
-  }, [isFetchingSchools, availableSchools]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;
@@ -76,7 +77,7 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSchool) {
-      setError(`${ITIS_FORMATION_NAME} est introuvable. Vérifiez la base ou contactez l'administrateur.`);
+      setError("Veuillez sélectionner un fablab.");
       return;
     }
     setError("");
@@ -95,7 +96,9 @@ export default function LoginPage() {
 
     if (!response.ok) {
       if (response.status === 403) {
-        setError(`Vous n'êtes pas autorisé à accéder à « ${selectedSchool.name} ».`);
+        setError(
+          `Ce compte n'est pas rattaché au fablab « ${selectedSchool.name} » (vérifiez technicien_fablabs).`,
+        );
       } else {
         setError("Identifiants invalides.");
       }
@@ -204,6 +207,80 @@ export default function LoginPage() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Fablab */}
+            <div className="space-y-1.5 relative">
+              <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
+                Fablab
+              </label>
+              <button
+                type="button"
+                disabled={isFetchingSchools}
+                onClick={() => setIsSchoolListOpen(!isSchoolListOpen)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 dark:bg-white/5 border transition-all text-left ${
+                  isSchoolListOpen
+                    ? "border-orange-500/50 ring-1 ring-orange-500/30"
+                    : "border-slate-200 dark:border-white/10"
+                } ${isFetchingSchools ? "opacity-40 cursor-not-allowed" : "hover:border-slate-300 dark:hover:border-white/20"}`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <School className={`h-4 w-4 shrink-0 ${selectedSchool ? "text-orange-400" : "text-slate-600"}`} />
+                  <span
+                    className={`text-sm truncate ${selectedSchool ? "text-slate-900 dark:text-white" : "text-slate-500"}`}
+                  >
+                    {isFetchingSchools
+                      ? "Chargement des fablabs…"
+                      : selectedSchool
+                        ? selectedSchool.name
+                        : "Choisissez votre fablab"}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`h-4 w-4 text-slate-500 shrink-0 transition-transform duration-200 ${isSchoolListOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {isSchoolListOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scaleY: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scaleY: 1 }}
+                    exit={{ opacity: 0, y: -8, scaleY: 0.95 }}
+                    style={{ transformOrigin: "top" }}
+                    className="absolute z-50 mt-1 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0d0d1a]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] overflow-hidden"
+                  >
+                    <div className="max-h-56 overflow-y-auto py-1.5">
+                      {sortedSchools.map((school) => (
+                        <button
+                          key={school.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSchool({ id: school.id, name: school.name });
+                            setIsSchoolListOpen(false);
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-orange-500/10 transition-colors group"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-300 transition-colors truncate">
+                              {school.name}
+                            </p>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5 truncate">
+                              {school.city}
+                            </p>
+                          </div>
+                          {selectedSchool?.id === school.id && (
+                            <Check className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 px-1">
+                Connectez-vous avec un compte lié à l&apos;établissement sélectionné.
+              </p>
+            </div>
 
             {/* E-mail */}
             <div className="space-y-1.5">
@@ -318,11 +395,6 @@ export default function LoginPage() {
                 </div>
               </div>
             </div>
-            {!isFetchingSchools && !selectedSchool && (
-              <p className="mt-2 text-center text-xs text-amber-600 dark:text-amber-400/90">
-                {ITIS_FORMATION_NAME} n&apos;est pas encore configurée dans la base — la connexion peut échouer.
-              </p>
-            )}
           </motion.div>
         </div>
       </motion.div>

@@ -27,7 +27,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/", label: "Accueil", icon: Home },
     { href: "#teachers", label: "Équipe", icon: Users },
-    { href: "/api/monitor-redirect", label: "Moniteur", icon: Monitor, external: false },
+    { href: "/api/monitor-redirect", label: "Moniteur", icon: Monitor, external: true },
   ];
 
   return (
