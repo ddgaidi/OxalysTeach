@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -9,39 +9,23 @@ import {
   AlertTriangle,
   Sun,
   Moon,
-  School,
-  Check,
-  ChevronDown,
   Sparkles,
-  Mail,
+  LogIn,
 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
 import { useTheme } from "@/src/components/providers/theme-provider";
 import { fetchFablabs, School as SchoolType } from "@/src/lib/schools";
+import { OxalysTeachLogo } from "./oxalys-teach-logo";
 
 const ITIS_FORMATION_NAME = "ITIS Formation";
 const ITIS_ADMIN_EMAIL = "admin@oxalys.fr";
-
-function HoverPasswordHint({ children }: { children: ReactNode }) {
-  return (
-    <span className="group/hint relative inline-flex cursor-default">
-      {children}
-      <span className="pointer-events-none absolute left-1/2 bottom-full z-30 mb-2 -translate-x-1/2 scale-95 opacity-0 transition-all duration-200 group-hover/hint:scale-100 group-hover/hint:opacity-100">
-        <span className="block whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-xl dark:bg-white dark:text-slate-900">
-          Mot de passe : 1234
-        </span>
-        <span className="mx-auto block h-0 w-0 border-x-8 border-x-transparent border-t-8 border-t-slate-900 dark:border-t-white" />
-      </span>
-    </span>
-  );
-}
+const ITIS_DEMO_PASSWORD = "1234";
 
 export default function LoginPage() {
   const { setTheme, theme } = useTheme();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [selectedSchool, setSelectedSchool] = useState<{ id: string; name: string } | null>(null);
-  const [isSchoolListOpen, setIsSchoolListOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingSchools, setIsFetchingSchools] = useState(true);
   const [availableSchools, setAvailableSchools] = useState<SchoolType[]>([]);
@@ -52,12 +36,6 @@ export default function LoginPage() {
 
   const rotateX = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
   const rotateY = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
-
-  const { otherSchools, itisSchool } = useMemo(() => {
-    const itis = availableSchools.find((s) => s.name === ITIS_FORMATION_NAME) ?? null;
-    const other = availableSchools.filter((s) => s.name !== ITIS_FORMATION_NAME);
-    return { otherSchools: other, itisSchool: itis };
-  }, [availableSchools]);
 
   useEffect(() => {
     async function loadSchools() {
@@ -72,6 +50,14 @@ export default function LoginPage() {
     }
     loadSchools();
   }, []);
+
+  useEffect(() => {
+    if (isFetchingSchools) return;
+    const itis = availableSchools.find((s) => s.name === ITIS_FORMATION_NAME);
+    if (itis) {
+      setSelectedSchool({ id: itis.id, name: itis.name });
+    }
+  }, [isFetchingSchools, availableSchools]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;
@@ -90,7 +76,7 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSchool) {
-      setError("Veuillez choisir un établissement.");
+      setError(`${ITIS_FORMATION_NAME} est introuvable. Vérifiez la base ou contactez l'administrateur.`);
       return;
     }
     setError("");
@@ -192,16 +178,7 @@ export default function LoginPage() {
             </div>
 
             <div className="flex justify-center mb-2">
-              <img
-                  src="/oxalys-teach.png"
-                  alt="OxalysTeach"
-                  className="h-16 w-auto object-contain object-left dark:hidden"
-              />
-              <img
-                  src="/oxalys-teach-light.png"
-                  alt="OxalysTeach"
-                  className="h-16 w-auto object-contain object-left hidden dark:block"
-              />
+              <OxalysTeachLogo />
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Accédez à votre espace pédagogique</p>
           </motion.div>
@@ -227,75 +204,6 @@ export default function LoginPage() {
                 </motion.div>
               )}
             </AnimatePresence>
-
-            {/* School selector */}
-            <div className="space-y-1.5 relative">
-              <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
-                Établissement
-              </label>
-              <button
-                type="button"
-                disabled={isFetchingSchools}
-                onClick={() => setIsSchoolListOpen(!isSchoolListOpen)}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 dark:bg-white/5 border transition-all text-left ${
-                  isSchoolListOpen
-                    ? "border-orange-500/50 ring-1 ring-orange-500/30"
-                    : "border-slate-200 dark:border-white/10"
-                } ${isFetchingSchools ? "opacity-40 cursor-not-allowed" : "hover:border-slate-300 dark:hover:border-white/20"}`}
-              >
-                <div className="flex items-center gap-3">
-                  <School className={`h-4 w-4 ${selectedSchool ? "text-orange-400" : "text-slate-600"}`} />
-                  <span className={`text-sm ${selectedSchool ? "text-slate-900 dark:text-white" : "text-slate-500"}`}>
-                    {isFetchingSchools
-                      ? "Chargement..."
-                      : selectedSchool
-                      ? selectedSchool.name
-                      : "Sélectionnez votre école"}
-                  </span>
-                </div>
-                <ChevronDown
-                  className={`h-4 w-4 text-slate-500 transition-transform duration-200 ${isSchoolListOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-
-              <AnimatePresence>
-                {isSchoolListOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8, scaleY: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scaleY: 1 }}
-                    exit={{ opacity: 0, y: -8, scaleY: 0.95 }}
-                    style={{ transformOrigin: "top" }}
-                    className="absolute z-50 mt-1 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0d0d1a]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] overflow-hidden"
-                  >
-                    <div className="max-h-56 overflow-y-auto py-1.5">
-                      {availableSchools.map((school) => (
-                        <button
-                          key={school.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedSchool(school);
-                            setIsSchoolListOpen(false);
-                          }}
-                          className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-orange-500/10 transition-colors group"
-                        >
-                          <div>
-                            <p className="text-sm font-medium text-slate-800 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-300 transition-colors">
-                              {school.name}
-                            </p>
-                            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">
-                              {school.city}
-                            </p>
-                          </div>
-                          {selectedSchool?.id === school.id && (
-                            <Check className="h-3.5 w-3.5 text-orange-400" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
 
             {/* E-mail */}
             <div className="space-y-1.5">
@@ -373,52 +281,47 @@ export default function LoginPage() {
             </button>
           </motion.form>
 
-          {/* Aperçu établissements — ITIS : e-mail dédié ; survol = indice mot de passe */}
+          {/* Accès démo ITIS — survol : mot de passe */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.45 }}
             className="mt-6 pt-5 border-t border-slate-200/80 dark:border-white/10"
           >
-            {!isFetchingSchools && (otherSchools.length > 0 || itisSchool) && (
-              <div className="space-y-4">
-                <p className="text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  Tous les établissements
-                  {itisSchool ? (
-                    <>
-                      , sauf{" "}
-                      <span className="text-orange-600 dark:text-orange-400">{ITIS_FORMATION_NAME}</span>
-                    </>
-                  ) : null}
-                </p>
-
-                {otherSchools.length > 0 && (
-                  <div className="flex flex-wrap justify-center gap-2.5">
-                    {otherSchools.map((school) => (
-                      <HoverPasswordHint key={school.id}>
-                        <span className="rounded-2xl border border-slate-200/90 dark:border-white/10 bg-gradient-to-br from-slate-50 to-white dark:from-white/[0.07] dark:to-white/[0.02] px-4 py-2.5 text-center text-base sm:text-lg font-bold tracking-tight text-slate-800 dark:text-white shadow-sm transition-all duration-300 group-hover/hint:border-orange-500/45 group-hover/hint:shadow-[0_10px_36px_-14px_rgba(249,115,22,0.5)]">
-                          {school.name}
-                        </span>
-                      </HoverPasswordHint>
-                    ))}
-                  </div>
-                )}
-
-                {itisSchool && (
-                  <HoverPasswordHint>
-                    <div className="flex flex-col items-center gap-1 rounded-2xl border border-orange-500/30 bg-gradient-to-br from-orange-500/[0.12] to-red-600/[0.06] px-5 py-4 text-center transition-all duration-300 group-hover/hint:border-orange-400/50 group-hover/hint:shadow-[0_12px_40px_-16px_rgba(249,115,22,0.45)]">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-orange-700/90 dark:text-orange-300/95">
-                        <Mail className="h-3 w-3 shrink-0" />
-                        {ITIS_FORMATION_NAME}
-                      </div>
-                      <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400">E-mail</p>
-                      <p className="text-lg sm:text-xl font-black tracking-tight text-orange-600 dark:text-orange-400 break-all">
-                        {ITIS_ADMIN_EMAIL}
-                      </p>
-                    </div>
-                  </HoverPasswordHint>
-                )}
+            <p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+              Informations
+            </p>
+            <div
+              className="group/demo relative flex w-full cursor-default select-none items-center gap-4 rounded-xl border border-slate-200/90 bg-slate-50/80 px-4 py-4 transition-all duration-300 dark:border-orange-500/25 dark:bg-white/[0.04] dark:shadow-[0_0_24px_-8px_rgba(249,115,22,0.35)] dark:hover:border-orange-400/45 dark:hover:shadow-[0_0_32px_-6px_rgba(249,115,22,0.45)]"
+              title="Survolez pour afficher le mot de passe démo"
+            >
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 dark:border-orange-500/35 dark:bg-white/[0.06] dark:text-orange-300/90">
+                <LogIn className="h-5 w-5" strokeWidth={1.75} />
               </div>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-500">
+                  Accès Dashboard · HORS {ITIS_FORMATION_NAME}
+                </p>
+                <div className="relative mt-1 min-h-[1.75rem]">
+                  <p className="truncate text-base font-medium text-slate-900 transition-opacity duration-200 group-hover/demo:pointer-events-none group-hover/demo:opacity-0 dark:text-white sm:text-lg">
+                    <span className="text-slate-900 dark:text-white">E-mail : </span>
+                    <span className="bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text font-extrabold text-transparent">
+                      {ITIS_ADMIN_EMAIL}
+                    </span>
+                  </p>
+                  <p className="pointer-events-none absolute left-0 top-0 flex flex-wrap items-baseline gap-1.5 text-base font-medium opacity-0 transition-opacity duration-200 group-hover/demo:opacity-100 sm:text-lg">
+                    <span className="text-slate-900 dark:text-white">Mot de passe :</span>
+                    <span className="bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text font-extrabold text-transparent">
+                      {ITIS_DEMO_PASSWORD}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+            {!isFetchingSchools && !selectedSchool && (
+              <p className="mt-2 text-center text-xs text-amber-600 dark:text-amber-400/90">
+                {ITIS_FORMATION_NAME} n&apos;est pas encore configurée dans la base — la connexion peut échouer.
+              </p>
             )}
           </motion.div>
         </div>
