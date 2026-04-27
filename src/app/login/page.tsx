@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -13,10 +13,28 @@ import {
   Check,
   ChevronDown,
   Sparkles,
+  Mail,
 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
 import { useTheme } from "@/src/components/providers/theme-provider";
 import { fetchFablabs, School as SchoolType } from "@/src/lib/schools";
+
+const ITIS_FORMATION_NAME = "ITIS Formation";
+const ITIS_ADMIN_EMAIL = "admin@oxalys.fr";
+
+function HoverPasswordHint({ children }: { children: ReactNode }) {
+  return (
+    <span className="group/hint relative inline-flex cursor-default">
+      {children}
+      <span className="pointer-events-none absolute left-1/2 bottom-full z-30 mb-2 -translate-x-1/2 scale-95 opacity-0 transition-all duration-200 group-hover/hint:scale-100 group-hover/hint:opacity-100">
+        <span className="block whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-xl dark:bg-white dark:text-slate-900">
+          Mot de passe : 1234
+        </span>
+        <span className="mx-auto block h-0 w-0 border-x-8 border-x-transparent border-t-8 border-t-slate-900 dark:border-t-white" />
+      </span>
+    </span>
+  );
+}
 
 export default function LoginPage() {
   const { setTheme, theme } = useTheme();
@@ -34,6 +52,12 @@ export default function LoginPage() {
 
   const rotateX = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
   const rotateY = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
+
+  const { otherSchools, itisSchool } = useMemo(() => {
+    const itis = availableSchools.find((s) => s.name === ITIS_FORMATION_NAME) ?? null;
+    const other = availableSchools.filter((s) => s.name !== ITIS_FORMATION_NAME);
+    return { otherSchools: other, itisSchool: itis };
+  }, [availableSchools]);
 
   useEffect(() => {
     async function loadSchools() {
@@ -147,7 +171,7 @@ export default function LoginPage() {
         initial={{ opacity: 0, y: 40, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-        className="relative w-full max-w-md"
+        className="relative w-full max-w-lg"
       >
         {/* Glow border effect */}
         <div className="absolute -inset-px rounded-3xl bg-gradient-to-br from-orange-500/30 via-transparent to-red-600/20 opacity-0 hover:opacity-100 transition-opacity duration-500 blur-sm" />
@@ -348,6 +372,55 @@ export default function LoginPage() {
               </span>
             </button>
           </motion.form>
+
+          {/* Aperçu établissements — ITIS : e-mail dédié ; survol = indice mot de passe */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.45 }}
+            className="mt-6 pt-5 border-t border-slate-200/80 dark:border-white/10"
+          >
+            {!isFetchingSchools && (otherSchools.length > 0 || itisSchool) && (
+              <div className="space-y-4">
+                <p className="text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Tous les établissements
+                  {itisSchool ? (
+                    <>
+                      , sauf{" "}
+                      <span className="text-orange-600 dark:text-orange-400">{ITIS_FORMATION_NAME}</span>
+                    </>
+                  ) : null}
+                </p>
+
+                {otherSchools.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-2.5">
+                    {otherSchools.map((school) => (
+                      <HoverPasswordHint key={school.id}>
+                        <span className="rounded-2xl border border-slate-200/90 dark:border-white/10 bg-gradient-to-br from-slate-50 to-white dark:from-white/[0.07] dark:to-white/[0.02] px-4 py-2.5 text-center text-base sm:text-lg font-bold tracking-tight text-slate-800 dark:text-white shadow-sm transition-all duration-300 group-hover/hint:border-orange-500/45 group-hover/hint:shadow-[0_10px_36px_-14px_rgba(249,115,22,0.5)]">
+                          {school.name}
+                        </span>
+                      </HoverPasswordHint>
+                    ))}
+                  </div>
+                )}
+
+                {itisSchool && (
+                  <HoverPasswordHint>
+                    <div className="flex flex-col items-center gap-1 rounded-2xl border border-orange-500/30 bg-gradient-to-br from-orange-500/[0.12] to-red-600/[0.06] px-5 py-4 text-center transition-all duration-300 group-hover/hint:border-orange-400/50 group-hover/hint:shadow-[0_12px_40px_-16px_rgba(249,115,22,0.45)]">
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-orange-700/90 dark:text-orange-300/95">
+                        <Mail className="h-3 w-3 shrink-0" />
+                        {ITIS_FORMATION_NAME}
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400">E-mail</p>
+                      <p className="text-lg sm:text-xl font-black tracking-tight text-orange-600 dark:text-orange-400 break-all">
+                        {ITIS_ADMIN_EMAIL}
+                      </p>
+                    </div>
+                  </HoverPasswordHint>
+                )}
+              </div>
+            )}
+          </motion.div>
         </div>
       </motion.div>
     </div>
