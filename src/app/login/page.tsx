@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  GraduationCap,
   ArrowRight,
   Lock,
   User,
@@ -20,7 +19,7 @@ import { useTheme } from "@/src/components/providers/theme-provider";
 import { fetchFablabs, School as SchoolType } from "@/src/lib/schools";
 
 export default function LoginPage() {
-  const { setTheme, theme, resolvedTheme } = useTheme();
+  const { setTheme, theme } = useTheme();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [selectedSchool, setSelectedSchool] = useState<{ id: string; name: string } | null>(null);
@@ -33,8 +32,6 @@ export default function LoginPage() {
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
   const rotateX = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
   const rotateY = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
 
@@ -59,8 +56,6 @@ export default function LoginPage() {
     const y = e.clientY - rect.top - rect.height / 2;
     rotateX.set(-y / 30);
     rotateY.set(x / 30);
-    mouseX.set(e.clientX - rect.left);
-    mouseY.set(e.clientY - rect.top);
   };
 
   const handleMouseLeave = () => {
@@ -278,25 +273,26 @@ export default function LoginPage() {
               </AnimatePresence>
             </div>
 
-            {/* Username */}
+            {/* E-mail */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
-                Identifiant
+                E-mail
               </label>
               <div className="relative">
                 <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
-                  type="text"
-                  placeholder="admin"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="vous@exemple.fr"
                   className={`w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 dark:bg-white/5 border text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${
-                    focusedField === "username"
+                    focusedField === "email"
                       ? "border-orange-500/50 ring-1 ring-orange-500/30"
                       : "border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
                   }`}
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  onFocus={() => setFocusedField("username")}
+                  onFocus={() => setFocusedField("email")}
                   onBlur={() => setFocusedField(null)}
                 />
               </div>
@@ -304,12 +300,9 @@ export default function LoginPage() {
 
             {/* Password */}
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center ml-1">
-                <label className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-                  Mot de passe
-                </label>
-                <span className="text-[10px] text-slate-400">Accès admin : 1234</span>
-              </div>
+              <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
+                Mot de passe
+              </label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
@@ -355,24 +348,6 @@ export default function LoginPage() {
               </span>
             </button>
           </motion.form>
-
-          {/* Footer hint */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="mt-6 pt-5 border-t border-white/5 text-center"
-          >
-            <p className="text-xs text-slate-400">
-              Accès admin :{" "}
-              <span className="font-bold text-orange-500">admin</span>
-              {" / "}
-              <span className="font-bold text-orange-500">1234</span>
-              <span className="block mt-1 text-[10px] text-slate-500">
-                Ou connectez-vous avec vos identifiants technicien
-              </span>
-            </p>
-          </motion.div>
         </div>
       </motion.div>
     </div>

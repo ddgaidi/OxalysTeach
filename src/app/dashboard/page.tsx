@@ -94,8 +94,8 @@ export default function DashboardPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [isLoadingPersonnel, setIsLoadingPersonnel] = useState(false);
-  const [loggedUserName, setLoggedUserName] = useState("Administrateur");
-  const [loggedUserRole, setLoggedUserRole] = useState("admin");
+  const [loggedUserName, setLoggedUserName] = useState("");
+  const [loggedUserRole, setLoggedUserRole] = useState("technician");
   const [loggedUserAvatar, setLoggedUserAvatar] = useState<string | null>(null);
   // Password modal
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -467,7 +467,7 @@ export default function DashboardPage() {
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{loggedUserName}</p>
               <p className="text-[9px] text-slate-500 dark:text-white/30 truncate capitalize">
-                {loggedUserRole === "technician" ? "Technicien FabLab" : "Administrateur"}
+                Technicien FabLab
               </p>
             </div>
           </button>
@@ -486,7 +486,6 @@ export default function DashboardPage() {
                     {/* Modifier le mot de passe */}
                     <button
                       onClick={() => { setIsProfileMenuOpen(false); setShowPasswordModal(true); }}
-                      disabled={loggedUserRole !== "technician"}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <div className="h-7 w-7 rounded-lg flex items-center justify-center text-blue-400 bg-blue-500/10">
@@ -497,14 +496,14 @@ export default function DashboardPage() {
                     {/* Photo de profil */}
                     <button
                       onClick={() => { setIsProfileMenuOpen(false); fileInputRef.current?.click(); }}
-                      disabled={avatarUploading || loggedUserRole === "admin"}
+                      disabled={avatarUploading}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <div className="h-7 w-7 rounded-lg flex items-center justify-center text-purple-400 bg-purple-500/10">
                         {avatarUploading ? <RefreshCw size={13} className="animate-spin" /> : <Camera size={13} />}
                       </div>
                       <span className="text-xs font-medium text-slate-700 dark:text-white/70">
-                        {avatarUploading ? "Envoi en cours…" : loggedUserRole === "admin" ? "Photo (Admin non modifiable)" : "Photo de profil"}
+                        {avatarUploading ? "Envoi en cours…" : "Photo de profil"}
                       </span>
                     </button>
                   </div>

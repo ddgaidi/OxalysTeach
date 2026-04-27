@@ -57,20 +57,6 @@ export async function POST(request: Request) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  // ── 1. Admin fallback — aucun appel Supabase ──────────────────────────────
-  if (username === "admin" && password === "1234") {
-    const response = NextResponse.json({ ok: true, role: "admin" });
-    setCookies(response, {
-      token: "admin-session",
-      schoolId,
-      schoolName: schoolName ?? "",
-      userName: "Administrateur",
-      userRole: "admin",
-    });
-    return response;
-  }
-
-  // ── 2. Connexion via Supabase Auth + vérification technicien ──────────────
   try {
     // Authentification avec le compte Supabase Auth (email + mot de passe)
     const supabaseAnon = createClient(supabaseUrl, anonKey);
