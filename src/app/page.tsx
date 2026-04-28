@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { fetchFablabs, getStatusColor, getStatusLabel, AirStatus } from "@/src/lib/schools";
+import {
+  fetchFablabs,
+  getStatusColor,
+  getStatusLabel,
+  AirStatus,
+  AIR_INDEX_OPTIMAL_MAX,
+  AIR_INDEX_DANGER_MIN,
+} from "@/src/lib/schools";
 import {
   ArrowRight,
   Wind,
@@ -21,7 +28,7 @@ const bentoFeatures = [
   {
     title: "Qualité de l'air",
     icon: Wind,
-    text: "Suivi CO2, COV et humidité en temps réel pour un environnement sain et productif.",
+    text: "Suivi de l'indice qualité de l'air en temps réel pour un environnement sain et productif.",
     accent: "from-orange-500/20 to-red-500/10",
     iconColor: "text-orange-400",
     iconBg: "bg-orange-500/15",
@@ -130,6 +137,7 @@ const titleWords = ["Oxalys", "Teach"];
 export default function Home() {
   const [schoolName, setSchoolName] = useState("");
   const [airStatus, setAirStatus] = useState<AirStatus>("Optimal");
+  const [avgAirIndex, setAvgAirIndex] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -145,7 +153,11 @@ export default function Home() {
         setSchoolName(decodedName);
         const allSchools = await fetchFablabs();
         const school = allSchools.find((s) => s.name === decodedName);
-        if (school) setAirStatus(school.status);
+        if (school) {
+          setAirStatus(school.status);
+          const vals = school.sensors.map((s) => s.airQualite).filter((v) => Number.isFinite(v));
+          setAvgAirIndex(vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
+        }
       }
     }
     loadData();
@@ -289,7 +301,19 @@ export default function Home() {
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{
-                      width: airStatus === "Optimal" ? "92%" : airStatus === "Dangereux" ? "55%" : "20%",
+                      width: `${Math.max(
+                        8,
+                        Math.min(
+                          100,
+                          avgAirIndex != null
+                            ? 100 - (avgAirIndex / (AIR_INDEX_DANGER_MIN * 1.35)) * 100
+                            : airStatus === "Optimal"
+                              ? 88
+                              : airStatus === "Dangereux"
+                                ? 48
+                                : 22,
+                        ),
+                      )}%`,
                     }}
                     transition={{ delay: 0.8, duration: 1.2, ease: "easeOut" }}
                     className={`h-full rounded-full ${statusColors.dot}`}
@@ -299,9 +323,13 @@ export default function Home() {
 
               {/* Metrics */}
               {[
-                { label: "CO2 moyen", value: "840 ppm", ok: true },
-                { label: "Ventilation", value: "Opérationnelle", ok: true },
-                { label: "Dernière alerte", value: "Aucune (24h)", ok: true },
+                {
+                  label: "Indice qualité de l'air (moy.)",
+                  value: avgAirIndex != null ? `${avgAirIndex.toFixed(1)}` : "—",
+                  ok: avgAirIndex == null ? true : avgAirIndex <= AIR_INDEX_OPTIMAL_MAX,
+                },
+                { label: "Ventilation", value: "À adapter selon l'indice", ok: true },
+                { label: "Dernière alerte", value: "Voir le tableau de bord", ok: true },
               ].map((item, i) => (
                 <motion.div
                   key={item.label}

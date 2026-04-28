@@ -19,11 +19,8 @@ import {
   Trash2,
   Wind,
   Activity,
-  Thermometer,
-  Droplets,
   ArrowUp,
   ArrowDown,
-  Camera,
   Key,
   Settings2,
   Wrench,
@@ -36,7 +33,19 @@ import {
 } from "lucide-react";
 import { SensorCard } from "@/src/components/dashboard/sensor-card";
 import { getClientCookie } from "@/src/lib/clientCookie";
-import { fetchFablabs, getStatusColor, AirStatus, School, SensorData, Teacher, Technician } from "@/src/lib/schools";
+import {
+  fetchFablabs,
+  getStatusColor,
+  AirStatus,
+  School,
+  SensorData,
+  Teacher,
+  Technician,
+  AIR_INDEX_OPTIMAL_MAX,
+  AIR_INDEX_WARN_MIN,
+  AIR_INDEX_WARN_MAX,
+  AIR_INDEX_DANGER_MIN,
+} from "@/src/lib/schools";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -49,22 +58,217 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
+  Legend,
+  ReferenceArea,
+  ReferenceLine,
 } from "recharts";
 
-const notificationsData = [
-  { id: 1, title: "Alerte CO2 Élevée", message: "L'imprimante 3D FDM a dépassé 1200ppm.", time: "il y a 5 min", type: "warning" },
-  { id: 2, title: "Maintenance", message: "Nettoyage des filtres de la découpe laser prévu demain à 08:00.", time: "il y a 2h", type: "info" },
-  { id: 3, title: "Système OK", message: "Toutes les machines sont maintenant sous surveillance.", time: "il y a 5h", type: "success" },
+function strokeForAirIndex(v: number): string {
+  if (!Number.isFinite(v)) return "#94a3b8";
+  if (v >= AIR_INDEX_DANGER_MIN) return "#ef4444";
+  if (v >= AIR_INDEX_WARN_MIN) return "#f97316";
+  return "#22c55e";
+}
+
+/** Couleurs fixes par capteur sur le graphique vue d’ensemble (courbes / barres). */
+const SENSOR_LINE_COLORS = [
+  "#f97316",
+  "#8b5cf6",
+  "#06b6d4",
+  "#22c55e",
+  "#ec4899",
+  "#eab308",
+  "#3b82f6",
+  "#14b8a6",
+  "#f43f5e",
+  "#a855f7",
 ];
 
+/** Fenêtre du graphique temps réel : 5 dernières minutes (données les plus anciennes supprimées). */
+const LIVE_WINDOW_MS = 5 * 60 * 1000;
+const LIVE_STORAGE_MAX = 360;
+
+/** Agrégation pas de 10 minutes (persistée pour survivre au refresh). */
+const TEN_MIN_MS = 10 * 60 * 1000;
+const TEN_MIN_RETENTION_MS = 48 * 60 * 60 * 1000;
+const TEN_MIN_MAX_POINTS = 288;
+
+const liveStorageKey = (fablabId: string) => `oxalys_air_live_v1_${fablabId}`;
+const tenMinStorageKey = (fablabId: string) => `oxalys_air_10m_v1_${fablabId}`;
+
+type AirHistoryRow = {
+  ts: number;
+  date: string;
+  time: string;
+  values: Record<string, number>;
+};
+
+type TenMinRow = {
+  bucketStart: number;
+  time: string;
+  values: Record<string, number>;
+};
+
+function trimLiveHistory(rows: AirHistoryRow[], now = Date.now()): AirHistoryRow[] {
+  const cutoff = now - LIVE_WINDOW_MS;
+  const next = rows.filter((r) => typeof r.ts === "number" && r.ts >= cutoff);
+  return next.slice(-LIVE_STORAGE_MAX);
+}
+
+function loadLiveHistory(fablabId: string): AirHistoryRow[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(liveStorageKey(fablabId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as AirHistoryRow[];
+    if (!Array.isArray(parsed)) return [];
+    return trimLiveHistory(parsed.filter((r) => typeof r.ts === "number"));
+  } catch {
+    return [];
+  }
+}
+
+function saveLiveHistory(fablabId: string, rows: AirHistoryRow[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(liveStorageKey(fablabId), JSON.stringify(rows));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function loadTenMinHistory(fablabId: string): TenMinRow[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(tenMinStorageKey(fablabId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as TenMinRow[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((r) => typeof r.bucketStart === "number" && r.values && typeof r.values === "object");
+  } catch {
+    return [];
+  }
+}
+
+function saveTenMinHistory(fablabId: string, rows: TenMinRow[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(tenMinStorageKey(fablabId), JSON.stringify(rows));
+  } catch {
+    /* ignore */
+  }
+}
+
+function formatTenMinAxisLabel(bucketStart: number): string {
+  const d = new Date(bucketStart * TEN_MIN_MS);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  if (d >= startOfToday) {
+    return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function averagesFromSums(sums: Record<string, { sum: number; count: number }>): Record<string, number> {
+  const out: Record<string, number> = {};
+  Object.entries(sums).forEach(([id, { sum, count }]) => {
+    if (count > 0) out[id] = sum / count;
+  });
+  return out;
+}
+
+type DashboardNotification = {
+  id: string;
+  title: string;
+  message: string;
+  timeLabel: string;
+  type: "critical" | "warning" | "success";
+  createdAt: number;
+};
+
+const notifStorageKey = (fablabId: string) => `oxalys_dash_notif_v1_${fablabId}`;
+const NOTIF_MAX = 50;
+
+function loadDashboardNotifications(fablabId: string): DashboardNotification[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(notifStorageKey(fablabId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as DashboardNotification[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((n) => n.id && n.title && typeof n.createdAt === "number").slice(0, NOTIF_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveDashboardNotifications(fablabId: string, list: DashboardNotification[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(notifStorageKey(fablabId), JSON.stringify(list.slice(0, NOTIF_MAX)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function airStatusLabelFr(s: AirStatus): string {
+  switch (s) {
+    case "Optimal":
+      return "Optimal";
+    case "Dangereux":
+      return "Dangereux";
+    case "Interdit d'accès":
+      return "Interdit d'accès";
+    default:
+      return String(s);
+  }
+}
+
+function notificationTypeForAirChange(from: AirStatus, to: AirStatus): DashboardNotification["type"] {
+  if (to === "Interdit d'accès") return "critical";
+  if (to === "Optimal") return "success";
+  if (from === "Interdit d'accès" && to === "Dangereux") return "warning";
+  return "warning";
+}
+
+function newNotificationId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+const SESSION_AVATAR_KEY = "oxalys_session_avatar_v1";
+
+type SessionAvatarColors = { bg: string; fg: string };
+
+function pickSessionAvatarColors(): SessionAvatarColors {
+  const hues = [12, 32, 142, 172, 210, 252, 292, 332];
+  const h = hues[Math.floor(Math.random() * hues.length)];
+  return { bg: `hsl(${h} 58% 46%)`, fg: `hsl(${h} 30% 98%)` };
+}
+
+function getOrCreateSessionAvatarColors(): SessionAvatarColors {
+  if (typeof window === "undefined") return { bg: "hsl(24 58% 46%)", fg: "hsl(24 30% 98%)" };
+  try {
+    const raw = sessionStorage.getItem(SESSION_AVATAR_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as SessionAvatarColors;
+      if (typeof p?.bg === "string" && typeof p?.fg === "string") return p;
+    }
+  } catch {
+    /* ignore */
+  }
+  const c = pickSessionAvatarColors();
+  try {
+    sessionStorage.setItem(SESSION_AVATAR_KEY, JSON.stringify(c));
+  } catch {
+    /* ignore */
+  }
+  return c;
+}
+
 const STAT_CARDS = [
-  { key: "sensors", label: "Capteurs", unit: "actifs", icon: Cpu,       color: "emerald", glow: "shadow-emerald-500/20" },
-  { key: "co2",     label: "CO2 Moyen", unit: "ppm",   icon: Wind,      color: "orange",  glow: "shadow-orange-500/20" },
-  { key: "voc",     label: "VOC Moyen", unit: "ppb",   icon: Activity,  color: "purple",  glow: "shadow-purple-500/20" },
-  { key: "temp",    label: "Température", unit: "°C",  icon: Thermometer,color: "red",    glow: "shadow-red-500/20" },
-  { key: "hum",     label: "Humidité",  unit: "%",     icon: Droplets,  color: "cyan",    glow: "shadow-cyan-500/20" },
+  { key: "air", label: "Qualité de l'air", unit: "indice moyen", icon: Wind, color: "orange", glow: "shadow-orange-500/20" },
 ] as const;
 
 const COLOR_MAP: Record<string, { bg: string; text: string; border: string }> = {
@@ -83,20 +287,29 @@ export default function DashboardPage() {
   const [schoolName, setSchoolName] = useState("");
   const [airStatus, setAirStatus] = useState<AirStatus>("Optimal");
   const [currentSchool, setCurrentSchool] = useState<School | null>(null);
-  const [chartPeriod, setChartPeriod] = useState<"hour" | "week">("hour");
+  const [chartPeriod, setChartPeriod] = useState<"live" | "10m">("live");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
+  const notifFablabRef = useRef<string | null>(null);
+  const notifBaselineRef = useRef<{ air: AirStatus; sensors: Record<string, SensorData["status"]> } | null>(null);
   const [isEditingSensors, setIsEditingSensors] = useState(false);
+  const isEditingSensorsRef = useRef(false);
   const [localSensors, setLocalSensors] = useState<SensorData[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<string>("");
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "success" | "error">("idle");
-  const [historyData, setHistoryData] = useState<Array<{ time: string; co2: number; voc: number; temp: number }>>([]);
+  const [historyData, setHistoryData] = useState<AirHistoryRow[]>([]);
+  const [tenMinSeries, setTenMinSeries] = useState<TenMinRow[]>([]);
+  const tenMinCtxRef = useRef<{ bucket: number | null; sums: Record<string, { sum: number; count: number }> }>({
+    bucket: null,
+    sums: {},
+  });
+  const lastFablabIdRef = useRef<string | null>(null);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [isLoadingPersonnel, setIsLoadingPersonnel] = useState(false);
   const [loggedUserName, setLoggedUserName] = useState("");
-  const [loggedUserRole, setLoggedUserRole] = useState("technician");
-  const [loggedUserAvatar, setLoggedUserAvatar] = useState<string | null>(null);
+  const [sessionAvatar, setSessionAvatar] = useState<SessionAvatarColors | null>(null);
   // Password modal
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pwCurrent, setPwCurrent] = useState("");
@@ -107,9 +320,13 @@ export default function DashboardPage() {
   const [pwLoading, setPwLoading] = useState(false);
   const [pwError, setPwError] = useState("");
   const [pwSuccess, setPwSuccess] = useState(false);
-  // Avatar upload
-  const [avatarUploading, setAvatarUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [savingLayout, setSavingLayout] = useState(false);
+  const notifTriggerRef = useRef<HTMLDivElement>(null);
+  const notifPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    isEditingSensorsRef.current = isEditingSensors;
+  }, [isEditingSensors]);
 
   const loadSchoolData = useCallback(async (isManual = false) => {
     const name = document.cookie
@@ -124,23 +341,94 @@ export default function DashboardPage() {
         const allSchools = await fetchFablabs();
         const school = allSchools.find((s) => s.name === decodedName);
         if (school) {
+          if (lastFablabIdRef.current !== school.id) {
+            lastFablabIdRef.current = school.id;
+            tenMinCtxRef.current = { bucket: null, sums: {} };
+            setTenMinSeries([]);
+            setHistoryData([]);
+            setIsEditingSensors(false);
+          }
           setAirStatus(school.status);
           setCurrentSchool(school);
-          setLocalSensors(school.sensors);
+          if (isEditingSensorsRef.current) {
+            setLocalSensors((prev) => {
+              const byId = new Map(school.sensors.map((s) => [s.id, s]));
+              return prev.map((s) => {
+                const fresh = byId.get(s.id);
+                if (!fresh) return s;
+                return { ...s, airQualite: fresh.airQualite, status: fresh.status };
+              });
+            });
+          } else {
+            setLocalSensors(school.sensors);
+          }
           const now = new Date();
           const timestamp = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          const dateStr = now.toLocaleDateString("fr-FR");
           setLastRefreshAt(timestamp);
-          const sensorCount = school.sensors.length;
-          if (sensorCount > 0) {
-            const averages = school.sensors.reduce(
-              (acc, sensor) => ({
-                co2: acc.co2 + sensor.co2 / sensorCount,
-                voc: acc.voc + sensor.voc / sensorCount,
-                temp: acc.temp + sensor.temp / sensorCount,
-              }),
-              { co2: 0, voc: 0, temp: 0 },
-            );
-            setHistoryData((prev) => [...prev, { time: timestamp, ...averages }].slice(-15));
+          if (school.sensors.length > 0) {
+            const values: Record<string, number> = {};
+            school.sensors.forEach((sensor) => {
+              values[sensor.id] = sensor.airQualite;
+            });
+            const ts = now.getTime();
+            const fablabId = school.id;
+
+            setHistoryData((prev) => {
+              let base = prev;
+              if (base.length === 0) {
+                base = loadLiveHistory(fablabId);
+              }
+              const merged = trimLiveHistory([...base, { ts, date: dateStr, time: timestamp, values }]);
+              saveLiveHistory(fablabId, merged);
+              return merged;
+            });
+
+            const bucket = Math.floor(ts / TEN_MIN_MS);
+            const ctx = tenMinCtxRef.current;
+            let finalized: TenMinRow | null = null;
+
+            if (ctx.bucket !== null && bucket !== ctx.bucket && Object.keys(ctx.sums).length > 0) {
+              finalized = {
+                bucketStart: ctx.bucket,
+                time: formatTenMinAxisLabel(ctx.bucket),
+                values: averagesFromSums(ctx.sums),
+              };
+            }
+            if (ctx.bucket !== bucket) {
+              ctx.bucket = bucket;
+              ctx.sums = {};
+            }
+            school.sensors.forEach((sensor) => {
+              const id = sensor.id;
+              if (!ctx.sums[id]) ctx.sums[id] = { sum: 0, count: 0 };
+              ctx.sums[id].sum += sensor.airQualite;
+              ctx.sums[id].count += 1;
+            });
+            const partial = averagesFromSums(ctx.sums);
+
+            setTenMinSeries((prev) => {
+              let next = prev;
+              if (next.length === 0) {
+                next = loadTenMinHistory(fablabId).filter((r) => r.bucketStart < bucket);
+              }
+              const minBucket = Math.floor((ts - TEN_MIN_RETENTION_MS) / TEN_MIN_MS);
+              next = next.filter((r) => r.bucketStart >= minBucket);
+              if (finalized) {
+                next = next.filter((r) => r.bucketStart !== finalized!.bucketStart);
+                next = [...next, finalized];
+              }
+              const label = formatTenMinAxisLabel(bucket);
+              const last = next[next.length - 1];
+              if (!last || last.bucketStart !== bucket) {
+                next = [...next, { bucketStart: bucket, time: label, values: { ...partial } }];
+              } else {
+                next = [...next.slice(0, -1), { bucketStart: bucket, time: label, values: { ...partial } }];
+              }
+              const trimmed = next.slice(-TEN_MIN_MAX_POINTS);
+              saveTenMinHistory(fablabId, trimmed);
+              return trimmed;
+            });
           }
           if (isManual) { setRefreshStatus("success"); setTimeout(() => setRefreshStatus("idle"), 3000); }
         } else if (isManual) { setRefreshStatus("error"); setTimeout(() => setRefreshStatus("idle"), 3000); }
@@ -152,13 +440,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadSchoolData();
-    const intervalId = window.setInterval(() => loadSchoolData(), 20_000);
+    const intervalId = window.setInterval(() => loadSchoolData(), 1_000);
     return () => window.clearInterval(intervalId);
   }, [loadSchoolData]);
 
   useEffect(() => {
     const rawName = getClientCookie("user_name");
-    const rawRole = getClientCookie("user_role");
     if (rawName) {
       try {
         setLoggedUserName(decodeURIComponent(rawName));
@@ -166,21 +453,23 @@ export default function DashboardPage() {
         setLoggedUserName(rawName);
       }
     }
-    if (rawRole) setLoggedUserRole(rawRole);
   }, []);
 
-  // Charge l'avatar du technicien connecté
   useEffect(() => {
-    if (loggedUserRole !== "technician") return;
-    const userId = getClientCookie("user_id");
-    if (!userId) return;
-    fetch("/api/technicien/me", { credentials: "include", cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { error?: string; image?: string | null } | null) => {
-        if (data?.image) setLoggedUserAvatar(data.image);
-      })
-      .catch(console.error);
-  }, [loggedUserRole]);
+    setSessionAvatar(getOrCreateSessionAvatarColors());
+  }, []);
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const n = e.target as Node;
+      if (notifTriggerRef.current?.contains(n)) return;
+      if (notifPanelRef.current?.contains(n)) return;
+      setIsNotificationsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [isNotificationsOpen]);
 
   useEffect(() => {
     if (activeTab !== "personnel") return;
@@ -197,6 +486,68 @@ export default function DashboardPage() {
       .finally(() => setIsLoadingPersonnel(false));
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!currentSchool?.id) return;
+    const sensorsMap = Object.fromEntries(currentSchool.sensors.map((s) => [s.id, s.status]));
+    const snapshot = { air: airStatus, sensors: { ...sensorsMap } };
+
+    if (notifFablabRef.current !== currentSchool.id) {
+      notifFablabRef.current = currentSchool.id;
+      notifBaselineRef.current = snapshot;
+      setNotifications(loadDashboardNotifications(currentSchool.id));
+      return;
+    }
+
+    const prev = notifBaselineRef.current;
+    if (!prev) {
+      notifBaselineRef.current = snapshot;
+      return;
+    }
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const dateStr = now.toLocaleDateString("fr-FR");
+    const timeLabel = `${dateStr} à ${timeStr}`;
+    const createdAt = now.getTime();
+
+    const newItems: DashboardNotification[] = [];
+
+    if (prev.air !== airStatus) {
+      newItems.push({
+        id: newNotificationId(),
+        title: "État de la salle",
+        message: `Passage de « ${airStatusLabelFr(prev.air)} » à « ${airStatusLabelFr(airStatus)} » (indice moyen).`,
+        timeLabel,
+        type: notificationTypeForAirChange(prev.air, airStatus),
+        createdAt,
+      });
+    }
+
+    currentSchool.sensors.forEach((s) => {
+      const was = prev.sensors[s.id];
+      if (was !== "danger" && s.status === "danger") {
+        newItems.push({
+          id: newNotificationId(),
+          title: "Capteur en zone critique",
+          message: `${s.name} : indice ≥ ${AIR_INDEX_DANGER_MIN} (seuil « interdit » sur ce capteur).`,
+          timeLabel,
+          type: "critical",
+          createdAt,
+        });
+      }
+    });
+
+    notifBaselineRef.current = snapshot;
+
+    if (newItems.length === 0) return;
+
+    setNotifications((prevList) => {
+      const next = [...newItems, ...prevList].slice(0, NOTIF_MAX);
+      saveDashboardNotifications(currentSchool.id, next);
+      return next;
+    });
+  }, [currentSchool, airStatus]);
+
   const handleMoveSensor = (index: number, direction: "up" | "down") => {
     const newSensors = [...localSensors];
     const targetIndex = direction === "up" ? index - 1 : index + 1;
@@ -207,40 +558,159 @@ export default function DashboardPage() {
   const handleRenameSensor = (id: string, newName: string) => {
     setLocalSensors((prev) => prev.map((s) => (s.id === id ? { ...s, name: newName } : s)));
   };
-  const saveSensorsOrder = () => { if (currentSchool) setCurrentSchool({ ...currentSchool, sensors: localSensors }); setIsEditingSensors(false); };
+
+  const displaySensors = useMemo(
+    () => (isEditingSensors ? localSensors : currentSchool?.sensors) ?? [],
+    [isEditingSensors, localSensors, currentSchool?.sensors],
+  );
+
+  const saveSensorsOrder = async () => {
+    if (!currentSchool) return;
+    setSavingLayout(true);
+    try {
+      const res = await fetch("/api/stations/layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fablabId: currentSchool.id,
+          stations: localSensors.map((s) => ({ id: Number(s.id), nom: s.name })),
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        alert(data.error ?? "Erreur lors de l'enregistrement");
+        return;
+      }
+      setCurrentSchool({ ...currentSchool, sensors: localSensors });
+      setIsEditingSensors(false);
+      await loadSchoolData(true);
+    } catch {
+      alert("Erreur réseau");
+    } finally {
+      setSavingLayout(false);
+    }
+  };
 
   const statusColors = getStatusColor(airStatus);
 
-  const getAverageValues = () => {
-    if (!currentSchool || currentSchool.sensors.length === 0) return { co2: 0, voc: 0, temp: 0, hum: 0 };
-    const count = currentSchool.sensors.length;
-    return currentSchool.sensors.reduce((acc, s) => ({ co2: acc.co2 + s.co2 / count, voc: acc.voc + s.voc / count, temp: acc.temp + s.temp / count, hum: acc.hum + s.hum / count }), { co2: 0, voc: 0, temp: 0, hum: 0 });
-  };
-  const avg = getAverageValues();
+  const avgAir = useMemo(() => {
+    const list = displaySensors.map((s) => s.airQualite).filter((v) => Number.isFinite(v));
+    if (list.length === 0) return 0;
+    return list.reduce((a, b) => a + b, 0) / list.length;
+  }, [displaySensors]);
 
-  const sensorBarsData = useMemo(
-    () => (currentSchool?.sensors ?? []).map((sensor) => ({ name: sensor.name.length > 16 ? `${sensor.name.slice(0, 16)}...` : sensor.name, co2: sensor.co2 })),
-    [currentSchool?.sensors],
+  const historyChartData = useMemo(
+    () =>
+      historyData.map((row) => ({
+        ts: row.ts,
+        time: row.time,
+        ...row.values,
+      })),
+    [historyData],
   );
 
-  const healthTips = useMemo(() => ({
-    ventilationTip: avg.co2 >= 1000 ? "Le CO2 est eleve : ouvrez largement les fenetres et augmentez l'extraction." : "CO2 correct : maintenez une aeration legere pendant les activites.",
-    temperatureTip: avg.temp < 19 ? "Temperature basse : chauffez legerement la salle pour rester entre 19C et 22C." : avg.temp > 24 ? "Temperature elevee : rafraichissez la piece pour le confort des utilisateurs." : "Temperature stable : la zone est dans la plage de confort.",
-    humidityTip: avg.hum < 35 ? "Humidite basse : ajoutez un apport d'humidite pour eviter un air trop sec." : avg.hum > 65 ? "Humidite elevee : ventilez pour limiter la condensation et l'inconfort." : "Humidite equilibree : bonnes conditions pour les usages en fablab.",
-  }), [avg.co2, avg.temp, avg.hum]);
+  const tenMinChartData = useMemo(
+    () =>
+      tenMinSeries.map((r) => ({
+        ts: r.bucketStart * TEN_MIN_MS,
+        time: r.time,
+        ...r.values,
+      })),
+    [tenMinSeries],
+  );
+
+  const chartYMax = useMemo(() => {
+    let m = AIR_INDEX_DANGER_MIN + 24;
+    historyChartData.forEach((row) => {
+      const r = row as Record<string, number | string | undefined>;
+      displaySensors.forEach((s) => {
+        const v = r[s.id];
+        if (typeof v === "number" && Number.isFinite(v)) m = Math.max(m, v);
+      });
+    });
+    return Math.min(500, Math.ceil(m * 1.12));
+  }, [historyChartData, displaySensors]);
+
+  const chartYMax10m = useMemo(() => {
+    let m = AIR_INDEX_DANGER_MIN + 24;
+    tenMinChartData.forEach((row) => {
+      const r = row as Record<string, number | string | undefined>;
+      displaySensors.forEach((s) => {
+        const v = r[s.id];
+        if (typeof v === "number" && Number.isFinite(v)) m = Math.max(m, v);
+      });
+    });
+    return Math.min(500, Math.ceil(m * 1.12));
+  }, [tenMinChartData, displaySensors]);
+
+  const healthTips = useMemo(() => {
+    const a = avgAir;
+    return {
+      niveauTip:
+        a <= AIR_INDEX_OPTIMAL_MAX
+          ? `Indice moyen ≤ ${AIR_INDEX_OPTIMAL_MAX} : situation favorable, maintenez une ventilation de fond pendant les ateliers.`
+          : a < AIR_INDEX_DANGER_MIN
+            ? `Entre ${AIR_INDEX_WARN_MIN} et ${AIR_INDEX_WARN_MAX} : air dégradé — aérez davantage et réduisez les sources (poussières, colles, machines).`
+            : `≥ ${AIR_INDEX_DANGER_MIN} : niveau critique — ventilez fortement, limitez l'occupation et vérifiez les capteurs en rouge.`,
+      ventilationTip:
+        a > AIR_INDEX_OPTIMAL_MAX
+          ? "Ouvrez en grand ou lancez l'extraction mécanique pour faire redescendre l'indice rapidement."
+          : "Une aération courte mais régulière suffit souvent à rester dans la zone verte du graphique.",
+      suiviTip: `Les bandes du graphique : vert ≤ ${AIR_INDEX_OPTIMAL_MAX} (optimal), orange ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX} (dangereux), rouge ≥ ${AIR_INDEX_DANGER_MIN} (interdit d'accès).`,
+    };
+  }, [avgAir]);
+
+  const csvEscape = (cell: string | number) => {
+    const s = String(cell);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
 
   const handleExportCSV = () => {
     if (!currentSchool) return;
-    let csv = "data:text/csv;charset=utf-8,Nom,CO2 (ppm),VOC (ppb),Temp (°C),Hum (%)\n";
-    csv += `VUE D'ENSEMBLE,${avg.co2.toFixed(0)},${avg.voc.toFixed(0)},${avg.temp.toFixed(1)},${avg.hum.toFixed(0)}\n`;
-    currentSchool.sensors.forEach((s) => { csv += `${s.name},${s.co2},${s.voc},${s.temp},${s.hum}\n`; });
+    const sensorsOrdered = displaySensors;
+    const header = ["Date", "Heure", ...sensorsOrdered.map((s) => s.name)].map(csvEscape).join(",");
+    const lines = [header];
+    if (historyData.length === 0) {
+      const now = new Date();
+      const row = [
+        now.toLocaleDateString("fr-FR"),
+        now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        ...sensorsOrdered.map((s) => String(s.airQualite)),
+      ];
+      lines.push(row.map(csvEscape).join(","));
+    } else {
+      historyData.forEach((h) => {
+        const row = [
+          h.date,
+          h.time,
+          ...sensorsOrdered.map((s) => String(h.values[s.id] ?? "")),
+        ];
+        lines.push(row.map(csvEscape).join(","));
+      });
+    }
+    const csvBody = "\ufeff" + lines.join("\n");
+    const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csv));
+    link.setAttribute("href", url);
     link.setAttribute("download", `export_oxalys_${schoolName.replace(/\s+/g, "_")}.csv`);
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  const handleLogout = async () => { await fetch("/api/logout", { method: "POST" }); router.push("/login"); router.refresh(); };
+  const handleLogout = async () => {
+    try {
+      sessionStorage.removeItem(SESSION_AVATAR_KEY);
+    } catch {
+      /* ignore */
+    }
+    await fetch("/api/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,59 +744,9 @@ export default function DashboardPage() {
     setPwSuccess(false);
   };
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setAvatarUploading(true);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/technicien/avatar", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        alert(
-          (data as { error?: string }).error ||
-            "Erreur d’envoi de la photo. Vérifiez la clé service Supabase, le bucket et la colonne image.",
-        );
-        return;
-      }
-
-      if ((data as { url?: string | null }).url) {
-        setLoggedUserAvatar((data as { url: string }).url);
-        return;
-      }
-
-      const meRes = await fetch("/api/technicien/me", {
-        cache: "no-store",
-        credentials: "include",
-      });
-      if (meRes.ok) {
-        const meData = (await meRes.json()) as { image?: string | null; error?: string };
-        if (meData.image) setLoggedUserAvatar(meData.image);
-      }
-
-      setIsProfileMenuOpen(false);
-
-    } catch (err) {
-      console.error(err);
-      alert("Erreur réseau");
-    } finally {
-      setAvatarUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-  const sensors = currentSchool?.sensors || [];
-
-  const statValues = { sensors: sensors.length, co2: avg.co2, voc: avg.voc, temp: avg.temp, hum: avg.hum };
+  const qualityScore = Math.round(
+    Math.max(0, Math.min(100, 100 - (avgAir / (AIR_INDEX_DANGER_MIN * 1.35)) * 100)),
+  );
 
   const isDark = theme === "dark";
   const chartGridColor = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)";
@@ -393,11 +813,20 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between px-3 pt-5 pb-1">
             <p className="text-[9px] uppercase font-bold text-slate-400 dark:text-white/20 tracking-widest">Capteurs Air</p>
             <button
-              onClick={() => (isEditingSensors ? saveSensorsOrder() : setIsEditingSensors(true))}
-              className="flex items-center gap-1 text-[9px] font-bold text-orange-500/70 hover:text-orange-400 transition-colors"
+              type="button"
+              onClick={() => {
+                if (isEditingSensors) {
+                  void saveSensorsOrder();
+                } else {
+                  if (currentSchool) setLocalSensors([...currentSchool.sensors]);
+                  setIsEditingSensors(true);
+                }
+              }}
+              disabled={savingLayout}
+              className="flex items-center gap-1 text-[9px] font-bold text-orange-500/70 hover:text-orange-400 transition-colors disabled:opacity-40"
             >
               <Settings2 size={9} />
-              {isEditingSensors ? "Enregistrer" : "Modifier"}
+              {savingLayout ? "…" : isEditingSensors ? "Enregistrer" : "Modifier"}
             </button>
           </div>
 
@@ -455,14 +884,11 @@ export default function DashboardPage() {
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
             className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all group text-left"
           >
-            <div className="h-9 w-9 rounded-full border border-orange-500/20 overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
-              {loggedUserAvatar ? (
-                <img src={loggedUserAvatar} alt="Avatar" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-orange-500/30 to-red-500/20 flex items-center justify-center">
-                  <User size={16} className="text-orange-400" />
-                </div>
-              )}
+            <div
+              className="h-9 w-9 rounded-full border border-white/25 overflow-hidden shrink-0 group-hover:scale-105 transition-transform flex items-center justify-center shadow-inner"
+              style={{ backgroundColor: sessionAvatar?.bg ?? "hsl(24 58% 46%)" }}
+            >
+              <User size={18} style={{ color: sessionAvatar?.fg ?? "hsl(24 30% 98%)" }} aria-hidden />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{loggedUserName}</p>
@@ -493,28 +919,7 @@ export default function DashboardPage() {
                       </div>
                       <span className="text-xs font-medium text-slate-700 dark:text-white/70">Modifier le mot de passe</span>
                     </button>
-                    {/* Photo de profil */}
-                    <button
-                      onClick={() => { setIsProfileMenuOpen(false); fileInputRef.current?.click(); }}
-                      disabled={avatarUploading}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <div className="h-7 w-7 rounded-lg flex items-center justify-center text-purple-400 bg-purple-500/10">
-                        {avatarUploading ? <RefreshCw size={13} className="animate-spin" /> : <Camera size={13} />}
-                      </div>
-                      <span className="text-xs font-medium text-slate-700 dark:text-white/70">
-                        {avatarUploading ? "Envoi en cours…" : "Photo de profil"}
-                      </span>
-                    </button>
                   </div>
-                  {/* Input fichier caché */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleAvatarFileChange}
-                  />
                 </motion.div>
               </>
             )}
@@ -553,20 +958,25 @@ export default function DashboardPage() {
               <Moon className="h-3.5 w-3.5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100 absolute" />
             </button>
 
-            <div className="relative">
+            <div className="relative" ref={notifTriggerRef}>
               <button
+                type="button"
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                 className="relative h-8 w-8 flex items-center justify-center rounded-full text-slate-500 dark:text-white/40 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/8 transition-all"
               >
                 <Bell className="h-3.5 w-3.5" />
-                    <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 bg-red-500 rounded-full border-2 border-white dark:border-[#05050f] animate-pulse" />
+                {notifications.length > 0 ? (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 flex items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white border-2 border-white dark:border-[#05050f]">
+                    {notifications.length > 99 ? "99+" : notifications.length}
+                  </span>
+                ) : null}
               </button>
 
               <AnimatePresence>
                 {isNotificationsOpen && (
                   <>
-                    <div className="fixed inset-0 z-40 cursor-pointer" onClick={() => setIsNotificationsOpen(false)} />
                     <motion.div
+                      ref={notifPanelRef}
                       initial={{ opacity: 0, y: 8, scale: 0.96 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 8, scale: 0.96 }}
@@ -574,25 +984,56 @@ export default function DashboardPage() {
                     >
                       <div className="p-4 border-b border-slate-100 dark:border-white/5 flex justify-between items-center">
                         <span className="text-sm font-bold text-slate-900 dark:text-white">Notifications</span>
-                        <button onClick={() => setIsNotificationsOpen(false)} className="h-6 w-6 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 text-slate-400 dark:text-white/30 hover:text-slate-900 dark:hover:text-white transition-all">
+                        <button
+                          type="button"
+                          title="Effacer l'historique"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNotifications([]);
+                            if (currentSchool?.id) saveDashboardNotifications(currentSchool.id, []);
+                          }}
+                          className="h-6 w-6 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 text-slate-400 dark:text-white/30 hover:text-slate-900 dark:hover:text-white transition-all"
+                        >
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                       <div className="max-h-80 overflow-y-auto">
-                        {notificationsData.map((notif) => (
-                          <div key={notif.id} className="p-4 border-b border-slate-50 dark:border-white/3 hover:bg-slate-50 dark:hover:bg-white/3 transition-colors cursor-pointer group">
-                            <div className="flex gap-3">
-                              <div className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${notif.type === "warning" ? "bg-orange-500" : notif.type === "info" ? "bg-blue-500" : "bg-emerald-500"}`} />
-                              <div>
-                                <h4 className="text-xs font-bold text-slate-700 dark:text-white/80 group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors">{notif.title}</h4>
-                                <p className="text-[11px] text-slate-500 dark:text-white/40 mt-0.5">{notif.message}</p>
-                                <span className="flex items-center gap-1 text-[9px] text-slate-400 dark:text-white/25 mt-1.5">
-                                  <Clock className="h-2 w-2" /> {notif.time}
-                                </span>
+                        {notifications.length === 0 ? (
+                          <p className="p-6 text-center text-[11px] text-slate-400 dark:text-white/30">
+                            Aucune alerte récente. Vous serez notifié des changements de statut de la salle et des
+                            passages d&apos;un capteur en rouge (indice ≥ {AIR_INDEX_DANGER_MIN}).
+                          </p>
+                        ) : (
+                          notifications.map((notif) => (
+                            <div
+                              key={notif.id}
+                              className="p-4 border-b border-slate-50 dark:border-white/3 hover:bg-slate-50 dark:hover:bg-white/3 transition-colors group"
+                            >
+                              <div className="flex gap-3">
+                                <div
+                                  className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${
+                                    notif.type === "critical"
+                                      ? "bg-red-500"
+                                      : notif.type === "warning"
+                                        ? "bg-orange-500"
+                                        : "bg-emerald-500"
+                                  }`}
+                                />
+                                <div>
+                                  <h4 className="text-xs font-bold text-slate-700 dark:text-white/80 group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors">
+                                    {notif.title}
+                                  </h4>
+                                  <p className="text-[11px] text-slate-500 dark:text-white/40 mt-0.5 leading-relaxed">
+                                    {notif.message}
+                                  </p>
+                                  <span className="flex items-center gap-1 text-[9px] text-slate-400 dark:text-white/25 mt-1.5">
+                                    <Clock className="h-2 w-2 shrink-0" /> {notif.timeLabel}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))
+                        )}
                       </div>
                     </motion.div>
                   </>
@@ -603,8 +1044,8 @@ export default function DashboardPage() {
         </header>
 
         {/* Content area */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex-1 min-w-0 overflow-y-auto p-6">
+          <div className="max-w-7xl mx-auto min-w-0 space-y-6">
 
             {/* ── OVERVIEW TAB ── */}
             {activeTab === "overview" && (
@@ -618,7 +1059,11 @@ export default function DashboardPage() {
                       <span className={`text-sm font-black ${statusColors.text}`}>{airStatus}</span>
                     </div>
                     <span className="text-[10px] text-slate-400 dark:text-white/30 hidden sm:block">
-                      {airStatus === "Optimal" ? "Tous les capteurs sont opérationnels" : airStatus === "Dangereux" ? "Alerte détectée" : "Zone critique"}
+                      {airStatus === "Optimal"
+                        ? "Aucun risque identifié sur la moyenne des capteurs"
+                        : airStatus === "Dangereux"
+                          ? "Accès autorisé — surveillance et ventilation recommandées"
+                          : "Accès interdit — indice moyen trop élevé"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -647,12 +1092,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Stat cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {/* Indice moyen — seule métrique agrégée (pas de CO₂ / COV / T / HR) */}
+                <div className="grid grid-cols-1 gap-3 max-w-md">
                   {STAT_CARDS.map(({ key, label, unit, icon: Icon, color }) => {
                     const c = COLOR_MAP[color];
-                    const val = key === "sensors" ? sensors.length : key === "co2" ? avg.co2 : key === "voc" ? avg.voc : key === "temp" ? avg.temp : avg.hum;
-                    const formatted = key === "sensors" ? String(sensors.length) : key === "temp" ? avg.temp.toFixed(1) : Math.round(val as number).toString();
+                    const formatted = Number.isFinite(avgAir) ? avgAir.toFixed(1) : "—";
                     return (
                       <motion.div
                         key={key}
@@ -667,9 +1111,12 @@ export default function DashboardPage() {
                             <Icon size={15} className={c.text} />
                           </div>
                           <p className="text-[9px] text-slate-500 dark:text-white/30 uppercase font-bold tracking-widest mb-1">{label}</p>
-                          <p className={`text-xl font-black ${c.text}`}>
+                          <p className="text-xl font-black" style={{ color: strokeForAirIndex(avgAir) }}>
                             {formatted}
                             <span className="text-xs font-normal text-slate-400 dark:text-white/25 ml-1">{unit}</span>
+                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-white/35 mt-2">
+                            {displaySensors.length} capteur{displaySensors.length !== 1 ? "s" : ""} · seuils : optimal ≤ {AIR_INDEX_OPTIMAL_MAX}, dangereux {AIR_INDEX_WARN_MIN}–{AIR_INDEX_WARN_MAX}, interdit ≥ {AIR_INDEX_DANGER_MIN}
                           </p>
                         </div>
                       </motion.div>
@@ -678,58 +1125,156 @@ export default function DashboardPage() {
                 </div>
 
                 <p className="text-[10px] text-slate-400 dark:text-white/20">
-                  Actualisation auto toutes les 20s{lastRefreshAt ? ` · Mis à jour à ${lastRefreshAt}` : ""}
+                  Temps réel : 1 mesure/s, courbe sur les 5 dernières minutes (défilement automatique, mémorisé dans ce
+                  navigateur après rechargement). Onglet 10 min : moyenne par pas de 10 minutes, jusqu&apos;à 48 h.
+                  {lastRefreshAt ? ` · Dernière mesure à ${lastRefreshAt}` : ""}
                 </p>
 
                 {/* Charts + Tips */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 min-w-0">
                   {/* Chart */}
-                  <div className="lg:col-span-2 rounded-3xl border border-slate-200 dark:border-white/5 bg-white dark:bg-black/30 backdrop-blur-sm p-6 shadow-sm dark:shadow-none">
+                  <div className="lg:col-span-2 min-w-0 rounded-3xl border border-slate-200 dark:border-white/5 bg-white dark:bg-black/30 backdrop-blur-sm p-6 shadow-sm dark:shadow-none">
                     <div className="flex items-center justify-between mb-6">
                       <div>
-                        <h3 className="font-bold text-slate-900 dark:text-white">Suivi des Indicateurs</h3>
+                        <h3 className="font-bold text-slate-900 dark:text-white">Qualité de l&apos;air — évolution</h3>
                         <p className="text-[11px] text-slate-500 dark:text-white/30 mt-0.5">{schoolName}</p>
                       </div>
                       <div className="flex bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/8 p-1 rounded-xl gap-1">
-                        {["hour", "week"].map((p) => (
+                        {(
+                          [
+                            { id: "live" as const, label: "Temps réel" },
+                            { id: "10m" as const, label: "10 min" },
+                          ] as const
+                        ).map(({ id, label }) => (
                           <button
-                            key={p}
-                            onClick={() => setChartPeriod(p as "hour" | "week")}
+                            key={id}
+                            type="button"
+                            onClick={() => setChartPeriod(id)}
                             className={`h-7 px-3 rounded-lg text-[11px] font-semibold transition-all ${
-                              chartPeriod === p
+                              chartPeriod === id
                                 ? "bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg"
                                 : "text-slate-400 dark:text-white/30 hover:text-slate-600 dark:hover:text-white/60"
                             }`}
                           >
-                            {p === "hour" ? "Aujourd'hui" : "Semaine"}
+                            {label}
                           </button>
                         ))}
                       </div>
                     </div>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        {chartPeriod === "hour" ? (
-                          <AreaChart data={historyData}>
-                            <defs>
-                              <linearGradient id="colorCo2" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#f97316" stopOpacity={0.35} />
-                                <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                            <XAxis dataKey="time" axisLine={false} tickLine={false} tick={chartTickStyle} />
-                            <YAxis axisLine={false} tickLine={false} tick={chartTickStyle} />
-                            <Tooltip contentStyle={chartTooltipStyle} />
-                            <Area type="monotone" dataKey="co2" name="CO2 (ppm)" stroke="#f97316" fillOpacity={1} fill="url(#colorCo2)" strokeWidth={2.5} />
-                          </AreaChart>
+                    <div className="h-64 w-full min-h-64 min-w-0">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
+                        {chartPeriod === "live" ? (
+                          historyChartData.length === 0 ? (
+                            <div className="flex h-full items-center justify-center text-xs text-slate-400 dark:text-white/30">
+                              En attente des premières mesures…
+                            </div>
+                          ) : (
+                            <LineChart data={historyChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                              <XAxis
+                                dataKey="ts"
+                                type="number"
+                                domain={["dataMin", "dataMax"]}
+                                axisLine={false}
+                                tickLine={false}
+                                tick={chartTickStyle}
+                                tickFormatter={(v) =>
+                                  typeof v === "number"
+                                    ? new Date(v).toLocaleTimeString("fr-FR", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        second: "2-digit",
+                                      })
+                                    : ""
+                                }
+                              />
+                              <YAxis domain={[0, chartYMax]} axisLine={false} tickLine={false} tick={chartTickStyle} />
+                              <Tooltip
+                                contentStyle={chartTooltipStyle}
+                                labelFormatter={(v) =>
+                                  typeof v === "number" ? new Date(v).toLocaleString("fr-FR") : String(v)
+                                }
+                              />
+                              <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
+                              <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
+                              <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
+                              <ReferenceLine y={AIR_INDEX_OPTIMAL_MAX} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
+                              <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
+                              <Legend
+                                wrapperStyle={{ fontSize: "10px", paddingTop: 8 }}
+                                formatter={(value) => (typeof value === "string" && value.length > 14 ? `${value.slice(0, 14)}…` : String(value))}
+                              />
+                              {displaySensors.map((s, i) => (
+                                <Line
+                                  key={s.id}
+                                  type="monotone"
+                                  dataKey={s.id}
+                                  name={s.name}
+                                  stroke={SENSOR_LINE_COLORS[i % SENSOR_LINE_COLORS.length]}
+                                  strokeWidth={2}
+                                  dot={false}
+                                  isAnimationActive={false}
+                                  connectNulls
+                                />
+                              ))}
+                            </LineChart>
+                          )
+                        ) : tenMinChartData.length === 0 ? (
+                          <div className="flex h-full items-center justify-center text-xs text-slate-400 dark:text-white/30">
+                            Pas encore assez de données par pas de 10 minutes (l&apos;historique est conservé après
+                            rechargement).
+                          </div>
                         ) : (
-                          <BarChart data={sensorBarsData}>
+                          <LineChart data={tenMinChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={chartTickStyle} />
-                            <YAxis axisLine={false} tickLine={false} tick={chartTickStyle} />
-                            <Tooltip contentStyle={chartTooltipStyle} />
-                            <Bar dataKey="co2" name="CO2 par capteur" fill="#f97316" radius={[6, 6, 0, 0]} opacity={0.85} />
-                          </BarChart>
+                            <XAxis
+                              dataKey="ts"
+                              type="number"
+                              domain={["dataMin", "dataMax"]}
+                              axisLine={false}
+                              tickLine={false}
+                              tick={chartTickStyle}
+                              tickFormatter={(v) =>
+                                typeof v === "number"
+                                  ? new Date(v).toLocaleString("fr-FR", {
+                                      day: "2-digit",
+                                      month: "2-digit",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })
+                                  : ""
+                              }
+                            />
+                            <YAxis domain={[0, chartYMax10m]} axisLine={false} tickLine={false} tick={chartTickStyle} />
+                            <Tooltip
+                              contentStyle={chartTooltipStyle}
+                              labelFormatter={(v) =>
+                                typeof v === "number" ? new Date(v).toLocaleString("fr-FR") : String(v)
+                              }
+                            />
+                            <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
+                            <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
+                            <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax10m} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
+                            <ReferenceLine y={AIR_INDEX_OPTIMAL_MAX} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
+                            <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
+                            <Legend
+                              wrapperStyle={{ fontSize: "10px", paddingTop: 8 }}
+                              formatter={(value) => (typeof value === "string" && value.length > 14 ? `${value.slice(0, 14)}…` : String(value))}
+                            />
+                            {displaySensors.map((s, i) => (
+                              <Line
+                                key={s.id}
+                                type="monotone"
+                                dataKey={s.id}
+                                name={s.name}
+                                stroke={SENSOR_LINE_COLORS[i % SENSOR_LINE_COLORS.length]}
+                                strokeWidth={2}
+                                dot={{ r: 3 }}
+                                isAnimationActive={false}
+                                connectNulls
+                              />
+                            ))}
+                          </LineChart>
                         )}
                       </ResponsiveContainer>
                     </div>
@@ -743,9 +1288,9 @@ export default function DashboardPage() {
                     </h3>
                     <div className="space-y-3">
                       {[
-                        { icon: Wind, tip: healthTips.ventilationTip, label: "Ventilation", color: "text-orange-400 bg-orange-500/10" },
-                        { icon: Thermometer, tip: healthTips.temperatureTip, label: "Température", color: "text-red-400 bg-red-500/10" },
-                        { icon: Droplets, tip: healthTips.humidityTip, label: "Humidité", color: "text-cyan-400 bg-cyan-500/10" },
+                        { icon: Activity, tip: healthTips.niveauTip, label: "Niveau global", color: "text-orange-400 bg-orange-500/10" },
+                        { icon: Wind, tip: healthTips.ventilationTip, label: "Ventilation", color: "text-cyan-400 bg-cyan-500/10" },
+                        { icon: Cpu, tip: healthTips.suiviTip, label: "Suivi", color: "text-emerald-400 bg-emerald-500/10" },
                       ].map(({ icon: Icon, tip, label, color }) => (
                         <div key={label} className="flex gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-white/3 border border-slate-100 dark:border-white/5">
                           <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
@@ -762,13 +1307,13 @@ export default function DashboardPage() {
                       <div className="flex justify-between items-center mb-2">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-orange-400">Score Qualité Air</p>
                         <span className={`text-[9px] font-black ${statusColors.text}`}>
-                          {airStatus === "Optimal" ? "92/100" : airStatus === "Dangereux" ? "64/100" : "28/100"}
+                          {qualityScore}/100
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 dark:bg-black/30 h-1.5 rounded-full overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
-                          animate={{ width: airStatus === "Optimal" ? "92%" : airStatus === "Dangereux" ? "64%" : "28%" }}
+                          animate={{ width: `${qualityScore}%` }}
                           transition={{ duration: 1.2, ease: "easeOut", delay: 0.3 }}
                           className={`h-full rounded-full ${statusColors.dot}`}
                         />
@@ -866,15 +1411,15 @@ export default function DashboardPage() {
                 {/* Sensor header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-3xl border border-slate-200 dark:border-white/5 bg-white dark:bg-black/30 shadow-sm dark:shadow-none p-6">
                   <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-2xl ${sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "bg-emerald-500/15 text-emerald-400" : sensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "bg-orange-500/15 text-orange-400" : "bg-red-500/15 text-red-400"}`}>
+                    <div className={`p-3 rounded-2xl ${displaySensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "bg-emerald-500/15 text-emerald-400" : displaySensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "bg-orange-500/15 text-orange-400" : "bg-red-500/15 text-red-400"}`}>
                       <Cpu size={24} />
                     </div>
                     <div>
-                      <h2 className="text-lg font-black text-slate-900 dark:text-white">{sensors.find((s) => s.id === selectedSensorId)?.name}</h2>
+                      <h2 className="text-lg font-black text-slate-900 dark:text-white">{displaySensors.find((s) => s.id === selectedSensorId)?.name}</h2>
                       <div className="flex items-center gap-2 mt-1">
-                        <div className={`h-1.5 w-1.5 rounded-full ${sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "bg-emerald-500" : sensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "bg-orange-500 animate-pulse" : "bg-red-500 animate-pulse"}`} />
+                        <div className={`h-1.5 w-1.5 rounded-full ${displaySensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "bg-emerald-500" : displaySensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "bg-orange-500 animate-pulse" : "bg-red-500 animate-pulse"}`} />
                         <span className="text-xs text-slate-500 dark:text-white/40">
-                          {sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "Capteur opérationnel" : sensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "Attention — Qualité dégradée" : "Critique — Seuil dépassé"}
+                          {displaySensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "Capteur opérationnel" : displaySensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "Attention — Qualité dégradée" : "Critique — Seuil dépassé"}
                         </span>
                       </div>
                     </div>
@@ -889,40 +1434,88 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Metrics */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <SensorCard name="CO2" type="co2" value={sensors.find((s) => s.id === selectedSensorId)?.co2 || 0} unit="ppm" status={sensors.find((s) => s.id === selectedSensorId)?.status || "good"} lastUpdated="En direct" />
-                  <SensorCard name="VOC" type="voc" value={sensors.find((s) => s.id === selectedSensorId)?.voc || 0} unit="ppb" status={sensors.find((s) => s.id === selectedSensorId)?.status || "good"} lastUpdated="En direct" />
-                  <SensorCard name="Température" type="temp" value={sensors.find((s) => s.id === selectedSensorId)?.temp || 0} unit="°C" status={sensors.find((s) => s.id === selectedSensorId)?.status || "good"} lastUpdated="En direct" />
-                  <SensorCard name="Humidité" type="hum" value={sensors.find((s) => s.id === selectedSensorId)?.hum || 0} unit="%" status={sensors.find((s) => s.id === selectedSensorId)?.status || "good"} lastUpdated="En direct" />
+                {/* Métrique unique : indice qualité de l'air */}
+                <div className="w-full max-w-xl">
+                  <SensorCard
+                    name="Qualité de l'air"
+                    type="air"
+                    value={Math.round(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                    unit="indice"
+                    status={displaySensors.find((s) => s.id === selectedSensorId)?.status || "good"}
+                    lastUpdated="En direct"
+                    compact
+                  />
                 </div>
 
                 {/* Sensor chart */}
-                <div className="rounded-3xl border border-slate-200 dark:border-white/5 bg-white dark:bg-black/30 shadow-sm dark:shadow-none p-6">
-                  <div className="flex items-center justify-between mb-6">
+                <div className="rounded-3xl border border-slate-200 dark:border-white/5 bg-white dark:bg-black/30 shadow-sm dark:shadow-none p-6 min-w-0">
+                  <div className="flex items-center justify-between gap-3 mb-6">
                     <div>
                       <h3 className="font-bold text-slate-900 dark:text-white">Évolution du Capteur</h3>
-                      <p className="text-[11px] text-slate-500 dark:text-white/30 mt-0.5">{sensors.find((s) => s.id === selectedSensorId)?.name}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-white/30 mt-0.5">{displaySensors.find((s) => s.id === selectedSensorId)?.name}</p>
                     </div>
-                    <div className="flex bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/8 p-1 rounded-xl gap-1">
-                      <button className="h-7 px-3 rounded-lg text-[11px] font-semibold bg-gradient-to-r from-orange-500 to-red-600 text-white">Aujourd'hui</button>
-                      <button className="h-7 px-3 rounded-lg text-[11px] font-semibold text-slate-400 dark:text-white/30 hover:text-slate-600 dark:hover:text-white/60 transition-colors">Semaine</button>
-                    </div>
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-white/45 shrink-0">En direct</span>
                   </div>
-                  <div className="h-72 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={historyData}>
+                  <div className="h-72 w-full min-h-72 min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={288}>
+                      <AreaChart
+                        data={historyData.map((h) => ({
+                          ts: h.ts,
+                          time: h.time,
+                          air: selectedSensorId ? h.values[selectedSensorId] : undefined,
+                        }))}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                      >
                         <defs>
                           <linearGradient id="colorSensor" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "#10b981" : sensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "#f97316" : "#ef4444"} stopOpacity={0.35} />
-                            <stop offset="95%" stopColor={sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "#10b981" : "#ef4444"} stopOpacity={0} />
+                            <stop
+                              offset="5%"
+                              stopColor={strokeForAirIndex(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                              stopOpacity={0.35}
+                            />
+                            <stop
+                              offset="95%"
+                              stopColor={strokeForAirIndex(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                              stopOpacity={0}
+                            />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                        <XAxis dataKey="time" axisLine={false} tickLine={false} tick={chartTickStyle} />
-                        <YAxis axisLine={false} tickLine={false} tick={chartTickStyle} />
+                        <XAxis
+                          dataKey="ts"
+                          type="number"
+                          domain={["dataMin", "dataMax"]}
+                          axisLine={false}
+                          tickLine={false}
+                          tick={chartTickStyle}
+                          tickFormatter={(v) =>
+                            typeof v === "number"
+                              ? new Date(v).toLocaleTimeString("fr-FR", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  second: "2-digit",
+                                })
+                              : ""
+                          }
+                        />
+                        <YAxis domain={[0, chartYMax]} axisLine={false} tickLine={false} tick={chartTickStyle} />
                         <Tooltip contentStyle={chartTooltipStyle} />
-                        <Area type="monotone" dataKey="co2" name="CO2 (ppm)" stroke={sensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "#10b981" : sensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "#f97316" : "#ef4444"} fillOpacity={1} fill="url(#colorSensor)" strokeWidth={2.5} />
+                        <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
+                        <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
+                        <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
+                        <ReferenceLine y={AIR_INDEX_OPTIMAL_MAX} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
+                        <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
+                        <Area
+                          type="monotone"
+                          dataKey="air"
+                          name="Indice"
+                          stroke={strokeForAirIndex(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                          fillOpacity={1}
+                          fill="url(#colorSensor)"
+                          strokeWidth={2.5}
+                          isAnimationActive={false}
+                          connectNulls
+                        />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>

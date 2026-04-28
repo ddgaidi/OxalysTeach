@@ -2,13 +2,45 @@ import { supabase } from "./supabase";
 
 export type AirStatus = "Optimal" | "Dangereux" | "Interdit d'accès";
 
+/**
+ * Indice qualité de l’air (capteur type 0–200+). Plus la valeur est élevée, plus la pollution intérieure est forte.
+ * - ≤ optimalMax : situation saine pour un fablab (objectif courant).
+ * - entre warnMin et warnMax : dégradation — ventilation / réduction des sources.
+ * - ≥ dangerMin : pic sévère — accès à restreindre (correspond à « Interdit d’accès » si au moins un capteur y est).
+ */
+export const AIR_INDEX_OPTIMAL_MAX = 64;
+export const AIR_INDEX_WARN_MIN = 65;
+export const AIR_INDEX_WARN_MAX = 119;
+export const AIR_INDEX_DANGER_MIN = 120;
+
+/** Lit une valeur `air_qualite` Supabase (nombre, chaîne, null) sans produire NaN. */
+export function parseAirQualite(raw: unknown): number {
+  if (raw == null || raw === "") return 0;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
+  if (typeof raw === "string") {
+    const n = Number(String(raw).replace(",", ".").trim());
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+  return 0;
+}
+
+function parsePlacement(raw: unknown): number {
+  if (raw == null || raw === "") return 0;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
+  if (typeof raw === "string") {
+    const n = Number(String(raw).replace(",", ".").trim());
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+  return 0;
+}
+
 export interface SensorData {
   id: string;
   name: string;
-  co2: number;
-  voc: number;
-  temp: number;
-  hum: number;
+  /** Ordre d'affichage (colonne `placement` en base, 1 = premier). */
+  placement: number;
+  /** Indice qualité de l'air renvoyé par le capteur (plus la valeur est élevée, plus la dégradation est forte). */
+  airQualite: number;
   status: "good" | "warning" | "danger";
 }
 
@@ -37,11 +69,10 @@ interface FablabRow {
 interface StationRow {
   id: number;
   fablab_id: string;
-  co2_moyen: number;
-  voc_moyen: number;
-  temperature_moyenne: number;
-  humidite_moyenne: number;
   created_at: string;
+  air_qualite?: number | null;
+  nom?: string | null;
+  placement?: number | null;
 }
 
 export interface Teacher {
@@ -110,11 +141,11 @@ export const schools: School[] = [
     city: "Paris", 
     status: "Optimal",
     sensors: [
-      { id: "s1", name: "Imprimante 3D FDM", co2: 720, voc: 110, temp: 21.5, hum: 42, status: "good" },
-      { id: "s2", name: "Découpe Laser", co2: 850, voc: 130, temp: 22.1, hum: 44, status: "good" },
-      { id: "s3", name: "Fraiseuse CNC", co2: 910, voc: 145, temp: 22.8, hum: 45, status: "good" },
-      { id: "s4", name: "Imprimante Résine", co2: 680, voc: 95, temp: 21.0, hum: 41, status: "good" },
-      { id: "s5", name: "Scanner 3D", co2: 740, voc: 115, temp: 21.8, hum: 43, status: "good" },
+      { id: "s1", name: "Imprimante 3D FDM", placement: 1, airQualite: 52, status: "good" },
+      { id: "s2", name: "Découpe Laser", placement: 2, airQualite: 68, status: "good" },
+      { id: "s3", name: "Fraiseuse CNC", placement: 3, airQualite: 71, status: "good" },
+      { id: "s4", name: "Imprimante Résine", placement: 4, airQualite: 48, status: "good" },
+      { id: "s5", name: "Scanner 3D", placement: 5, airQualite: 55, status: "good" },
     ]
   },
   { 
@@ -123,10 +154,10 @@ export const schools: School[] = [
     city: "Lyon", 
     status: "Dangereux",
     sensors: [
-      { id: "s1", name: "Découpe Laser CO2", co2: 1280, voc: 420, temp: 24.5, hum: 52, status: "warning" },
-      { id: "s2", name: "Imprimante Acrylique", co2: 1450, voc: 580, temp: 25.8, hum: 55, status: "warning" },
-      { id: "s3", name: "Traceur de Découpe", co2: 1150, voc: 380, temp: 23.5, hum: 50, status: "warning" },
-      { id: "s4", name: "Presse à Chaud", co2: 1320, voc: 490, temp: 24.8, hum: 53, status: "warning" },
+      { id: "s1", name: "Découpe Laser CO2", placement: 1, airQualite: 95, status: "warning" },
+      { id: "s2", name: "Imprimante Acrylique", placement: 2, airQualite: 108, status: "warning" },
+      { id: "s3", name: "Traceur de Découpe", placement: 3, airQualite: 88, status: "warning" },
+      { id: "s4", name: "Presse à Chaud", placement: 4, airQualite: 102, status: "warning" },
     ]
   },
   { 
@@ -135,12 +166,12 @@ export const schools: School[] = [
     city: "Bordeaux", 
     status: "Interdit d'accès",
     sensors: [
-      { id: "s1", name: "Ligne Impression Industrielle", co2: 2250, voc: 920, temp: 28.5, hum: 72, status: "danger" },
-      { id: "s2", name: "Bras Robotisé", co2: 2450, voc: 1050, temp: 29.2, hum: 75, status: "danger" },
-      { id: "s3", name: "Banc de Test Électrique", co2: 2100, voc: 880, temp: 27.8, hum: 70, status: "danger" },
-      { id: "s4", name: "Imprimante 3D SLS", co2: 1950, voc: 780, temp: 26.5, hum: 68, status: "danger" },
-      { id: "s5", name: "Poste Soudage CMS", co2: 2300, voc: 950, temp: 28.8, hum: 73, status: "danger" },
-      { id: "s6", name: "Four de Refusion", co2: 2150, voc: 890, temp: 27.5, hum: 71, status: "danger" },
+      { id: "s1", name: "Ligne Impression Industrielle", placement: 1, airQualite: 165, status: "danger" },
+      { id: "s2", name: "Bras Robotisé", placement: 2, airQualite: 178, status: "danger" },
+      { id: "s3", name: "Banc de Test Électrique", placement: 3, airQualite: 152, status: "danger" },
+      { id: "s4", name: "Imprimante 3D SLS", placement: 4, airQualite: 142, status: "danger" },
+      { id: "s5", name: "Poste Soudage CMS", placement: 5, airQualite: 170, status: "danger" },
+      { id: "s6", name: "Four de Refusion", placement: 6, airQualite: 158, status: "danger" },
     ]
   },
   { 
@@ -149,10 +180,10 @@ export const schools: School[] = [
     city: "Nantes", 
     status: "Optimal",
     sensors: [
-      { id: "s1", name: "Imprimante 3D Édu", co2: 650, voc: 85, temp: 20.5, hum: 40, status: "good" },
-      { id: "s2", name: "Découpeuse Vinyle", co2: 780, voc: 105, temp: 21.8, hum: 42, status: "good" },
-      { id: "s3", name: "Machine à Coudre", co2: 820, voc: 115, temp: 22.2, hum: 44, status: "good" },
-      { id: "s4", name: "Poste Informatique", co2: 710, voc: 92, temp: 21.2, hum: 41, status: "good" },
+      { id: "s1", name: "Imprimante 3D Édu", placement: 1, airQualite: 45, status: "good" },
+      { id: "s2", name: "Découpeuse Vinyle", placement: 2, airQualite: 58, status: "good" },
+      { id: "s3", name: "Machine à Coudre", placement: 3, airQualite: 62, status: "good" },
+      { id: "s4", name: "Poste Informatique", placement: 4, airQualite: 51, status: "good" },
     ]
   },
 ];
@@ -169,38 +200,23 @@ function parseEquipements(value: FablabRow["equipements"]): string[] {
   }
 }
 
-function getSensorStatus(co2: number, voc: number, temp: number, hum: number): SensorData["status"] {
-  const isDanger =
-    co2 >= 1600 ||
-    voc >= 400 ||
-    temp >= 35 ||
-    temp <= 12 ||
-    hum >= 80 ||
-    hum <= 20;
-
-  if (isDanger) return "danger";
-
-  const isWarning =
-    co2 >= 1000 ||
-    voc >= 200 ||
-    temp >= 28 ||
-    temp <= 16 ||
-    hum >= 70 ||
-    hum <= 30;
-
-  if (isWarning) return "warning";
+function getSensorStatus(airQualite: number): SensorData["status"] {
+  if (!Number.isFinite(airQualite)) return "good";
+  if (airQualite >= AIR_INDEX_DANGER_MIN) return "danger";
+  if (airQualite >= AIR_INDEX_WARN_MIN) return "warning";
   return "good";
 }
 
+/**
+ * État global du fablab : basé sur la **moyenne** de l’indice (cohérent avec la carte « indice moyen »).
+ * Les statuts par capteur (points warning/danger) restent pour repérer un capteur isolé.
+ */
 function computeAirStatus(sensors: SensorData[]): AirStatus {
-  if (sensors.some((sensor) => sensor.status === "danger")) {
-    return "Interdit d'accès";
-  }
-
-  if (sensors.some((sensor) => sensor.status === "warning")) {
-    return "Dangereux";
-  }
-
+  const vals = sensors.map((s) => s.airQualite).filter((v) => Number.isFinite(v));
+  if (vals.length === 0) return "Optimal";
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  if (avg >= AIR_INDEX_DANGER_MIN) return "Interdit d'accès";
+  if (avg >= AIR_INDEX_WARN_MIN) return "Dangereux";
   return "Optimal";
 }
 
@@ -237,22 +253,33 @@ export async function fetchFablabs(): Promise<School[]> {
     const city = fab.adresse?.split(" · ")[0] || "Inconnu";
     const equipements = parseEquipements(fab.equipements);
     const rawSensors = stationsByFablab[fab.id] ?? [];
+    const sortedStations = [...rawSensors].sort((a, b) => {
+      const pa = parsePlacement(a.placement);
+      const pb = parsePlacement(b.placement);
+      const oa = pa > 0 ? pa : 999_999;
+      const ob = pb > 0 ? pb : 999_999;
+      if (oa !== ob) return oa - ob;
+      return a.id - b.id;
+    });
 
-    const sensors: SensorData[] = rawSensors.map((station, index) => {
-      const status = getSensorStatus(
-        station.co2_moyen,
-        station.voc_moyen,
-        station.temperature_moyenne,
-        station.humidite_moyenne,
-      );
+    const sensors: SensorData[] = sortedStations.map((station, index) => {
+      const airQualite = parseAirQualite(station.air_qualite);
+      const status = getSensorStatus(airQualite);
+      const pl = parsePlacement(station.placement);
+      const nomDb = typeof station.nom === "string" ? station.nom.trim() : "";
+      const fromEquip =
+        pl > 0 ? equipements[pl - 1] : undefined;
+      const name =
+        nomDb ||
+        (typeof fromEquip === "string" ? fromEquip : undefined) ||
+        equipements[index] ||
+        `Capteur ${index + 1}`;
 
       return {
         id: String(station.id),
-        name: equipements[index] || `Capteur ${index + 1}`,
-        co2: station.co2_moyen,
-        voc: station.voc_moyen,
-        temp: station.temperature_moyenne,
-        hum: station.humidite_moyenne,
+        name,
+        placement: pl > 0 ? pl : index + 1,
+        airQualite,
         status,
       };
     });
@@ -315,11 +342,11 @@ export function getStatusColor(status: AirStatus) {
 export function getStatusLabel(status: AirStatus) {
   switch (status) {
     case "Optimal":
-      return "Environnement de travail sain";
+      return "Aucun risque — conditions favorables";
     case "Dangereux":
-      return "Ventilation recommandée immédiatement";
+      return "Accès autorisé : aérez la zone et restez vigilant";
     case "Interdit d'accès":
-      return "Évacuation de la zone requise";
+      return "Accès interdit — ne pas occuper la zone";
     default:
       return "";
   }
