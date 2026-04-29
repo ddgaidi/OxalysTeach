@@ -65,11 +65,46 @@ import {
   ReferenceLine,
 } from "recharts";
 
-function strokeForAirIndex(v: number): string {
-  if (!Number.isFinite(v)) return "#94a3b8";
+function strokeForAirIndex(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "#94a3b8";
   if (v >= AIR_INDEX_DANGER_MIN) return "#ef4444";
   if (v >= AIR_INDEX_WARN_MIN) return "#f97316";
   return "#22c55e";
+}
+
+/** Recharts passe souvent `label` comme chaîne même pour `dataKey="ts"` — parser pour éviter l'affichage brut en ms. */
+function formatAirChartTooltipLabel(v: unknown): string {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return v.toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+  let ms: number;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    ms = v;
+  } else if (typeof v === "string") {
+    const t = v.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(t)) return t || "";
+    ms = Number(t);
+  } else {
+    return "";
+  }
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 /** Couleurs fixes par capteur sur le graphique vue d’ensemble (courbes / barres). */
@@ -217,19 +252,21 @@ function airStatusLabelFr(s: AirStatus): string {
   switch (s) {
     case "Optimal":
       return "Optimal";
-    case "Dangereux":
-      return "Dangereux";
-    case "Interdit d'accès":
-      return "Interdit d'accès";
+    case "Alerte":
+      return "Alerte";
+    case "Danger":
+      return "Danger";
+    case "Hors Service":
+      return "Hors Service";
     default:
       return String(s);
   }
 }
 
 function notificationTypeForAirChange(from: AirStatus, to: AirStatus): DashboardNotification["type"] {
-  if (to === "Interdit d'accès") return "critical";
+  if (to === "Danger" || to === "Hors Service") return "critical";
   if (to === "Optimal") return "success";
-  if (from === "Interdit d'accès" && to === "Dangereux") return "warning";
+  if (from === "Danger" && to === "Alerte") return "warning";
   return "warning";
 }
 
@@ -369,7 +406,9 @@ export default function DashboardPage() {
           if (school.sensors.length > 0) {
             const values: Record<string, number> = {};
             school.sensors.forEach((sensor) => {
-              values[sensor.id] = sensor.airQualite;
+              if (sensor.airQualite != null && Number.isFinite(sensor.airQualite)) {
+                values[sensor.id] = sensor.airQualite;
+              }
             });
             const ts = now.getTime();
             const fablabId = school.id;
@@ -400,6 +439,7 @@ export default function DashboardPage() {
               ctx.sums = {};
             }
             school.sensors.forEach((sensor) => {
+              if (sensor.airQualite == null || !Number.isFinite(sensor.airQualite)) return;
               const id = sensor.id;
               if (!ctx.sums[id]) ctx.sums[id] = { sum: 0, count: 0 };
               ctx.sums[id].sum += sensor.airQualite;
@@ -529,7 +569,7 @@ export default function DashboardPage() {
         newItems.push({
           id: newNotificationId(),
           title: "Capteur en zone critique",
-          message: `${s.name} : indice ≥ ${AIR_INDEX_DANGER_MIN} (seuil « interdit » sur ce capteur).`,
+          message: `${s.name} : indice ≥ ${AIR_INDEX_DANGER_MIN} (seuil « danger » sur ce capteur).`,
           timeLabel,
           type: "critical",
           createdAt,
@@ -564,6 +604,11 @@ export default function DashboardPage() {
     [isEditingSensors, localSensors, currentSchool?.sensors],
   );
 
+  const selectedSensor = useMemo(
+    () => (selectedSensorId ? displaySensors.find((s) => s.id === selectedSensorId) ?? null : null),
+    [displaySensors, selectedSensorId],
+  );
+
   const saveSensorsOrder = async () => {
     if (!currentSchool) return;
     setSavingLayout(true);
@@ -594,8 +639,8 @@ export default function DashboardPage() {
   const statusColors = getStatusColor(airStatus);
 
   const avgAir = useMemo(() => {
-    const list = displaySensors.map((s) => s.airQualite).filter((v) => Number.isFinite(v));
-    if (list.length === 0) return 0;
+    const list = displaySensors.map((s) => s.airQualite).filter((v): v is number => v != null && Number.isFinite(v));
+    if (list.length === 0) return null;
     return list.reduce((a, b) => a + b, 0) / list.length;
   }, [displaySensors]);
 
@@ -644,19 +689,27 @@ export default function DashboardPage() {
   }, [tenMinChartData, displaySensors]);
 
   const healthTips = useMemo(() => {
+    if (avgAir === null) {
+      return {
+        niveauTip:
+          "Aucune donnée valide des capteurs (timeout ou hors service). Vérifiez les connexions et l'état des équipements.",
+        ventilationTip: "—",
+        suiviTip: `Seuils : vert indice < ${AIR_INDEX_WARN_MIN} (optimal), orange ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX} (alerte), rouge ≥ ${AIR_INDEX_DANGER_MIN} (danger).`,
+      };
+    }
     const a = avgAir;
     return {
       niveauTip:
-        a <= AIR_INDEX_OPTIMAL_MAX
-          ? `Indice moyen ≤ ${AIR_INDEX_OPTIMAL_MAX} : situation favorable, maintenez une ventilation de fond pendant les ateliers.`
+        a < AIR_INDEX_WARN_MIN
+          ? `Indice moyen < ${AIR_INDEX_WARN_MIN} (optimal) : situation favorable, maintenez une ventilation de fond pendant les ateliers.`
           : a < AIR_INDEX_DANGER_MIN
-            ? `Entre ${AIR_INDEX_WARN_MIN} et ${AIR_INDEX_WARN_MAX} : air dégradé — aérez davantage et réduisez les sources (poussières, colles, machines).`
-            : `≥ ${AIR_INDEX_DANGER_MIN} : niveau critique — ventilez fortement, limitez l'occupation et vérifiez les capteurs en rouge.`,
+            ? `Entre ${AIR_INDEX_WARN_MIN} et ${AIR_INDEX_WARN_MAX} (alerte) : aérez davantage et réduisez les sources (poussières, colles, machines).`
+            : `≥ ${AIR_INDEX_DANGER_MIN} (danger) : niveau critique — ventilez fortement, limitez l'exposition et vérifiez les capteurs en rouge.`,
       ventilationTip:
-        a > AIR_INDEX_OPTIMAL_MAX
+        a >= AIR_INDEX_WARN_MIN
           ? "Ouvrez en grand ou lancez l'extraction mécanique pour faire redescendre l'indice rapidement."
           : "Une aération courte mais régulière suffit souvent à rester dans la zone verte du graphique.",
-      suiviTip: `Les bandes du graphique : vert ≤ ${AIR_INDEX_OPTIMAL_MAX} (optimal), orange ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX} (dangereux), rouge ≥ ${AIR_INDEX_DANGER_MIN} (interdit d'accès).`,
+      suiviTip: `Les bandes du graphique : vert < ${AIR_INDEX_WARN_MIN} (optimal), orange ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX} (alerte), rouge ≥ ${AIR_INDEX_DANGER_MIN} (danger).`,
     };
   }, [avgAir]);
 
@@ -676,7 +729,7 @@ export default function DashboardPage() {
       const row = [
         now.toLocaleDateString("fr-FR"),
         now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        ...sensorsOrdered.map((s) => String(s.airQualite)),
+        ...sensorsOrdered.map((s) => (s.airQualite == null ? "" : String(s.airQualite))),
       ];
       lines.push(row.map(csvEscape).join(","));
     } else {
@@ -744,9 +797,10 @@ export default function DashboardPage() {
     setPwSuccess(false);
   };
 
-  const qualityScore = Math.round(
-    Math.max(0, Math.min(100, 100 - (avgAir / (AIR_INDEX_DANGER_MIN * 1.35)) * 100)),
-  );
+  const qualityScore =
+    avgAir == null
+      ? 0
+      : Math.round(Math.max(0, Math.min(100, 100 - (avgAir / (AIR_INDEX_DANGER_MIN * 1.35)) * 100)));
 
   const isDark = theme === "dark";
   const chartGridColor = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)";
@@ -859,7 +913,15 @@ export default function DashboardPage() {
                         : "text-slate-500 dark:text-white/35 hover:text-slate-700 dark:hover:text-white/60 hover:bg-slate-100 dark:hover:bg-white/4"
                     }`}
                   >
-                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${sensor.status === "good" ? "bg-emerald-500" : sensor.status === "warning" ? "bg-orange-500 animate-pulse" : "bg-red-500 animate-pulse"}`} />
+                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                      sensor.status === "good"
+                        ? "bg-emerald-500"
+                        : sensor.status === "warning"
+                          ? "bg-orange-500 animate-pulse"
+                          : sensor.status === "danger"
+                            ? "bg-red-500 animate-pulse"
+                            : "bg-slate-400"
+                    }`} />
                     <span className="truncate font-medium">{sensor.name}</span>
                     <ChevronRight size={10} className="ml-auto opacity-40 group-hover:opacity-70 transition-opacity shrink-0" />
                   </button>
@@ -1061,9 +1123,11 @@ export default function DashboardPage() {
                     <span className="text-[10px] text-slate-400 dark:text-white/30 hidden sm:block">
                       {airStatus === "Optimal"
                         ? "Aucun risque identifié sur la moyenne des capteurs"
-                        : airStatus === "Dangereux"
-                          ? "Accès autorisé — surveillance et ventilation recommandées"
-                          : "Accès interdit — indice moyen trop élevé"}
+                        : airStatus === "Alerte"
+                          ? "Surveillance recommandée — indice moyen en zone alerte"
+                          : airStatus === "Danger"
+                            ? "Niveau critique sur la moyenne des capteurs"
+                            : "Données absentes ou capteurs non joignables"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1096,7 +1160,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-1 gap-3 max-w-md">
                   {STAT_CARDS.map(({ key, label, unit, icon: Icon, color }) => {
                     const c = COLOR_MAP[color];
-                    const formatted = Number.isFinite(avgAir) ? avgAir.toFixed(1) : "—";
+                    const formatted = avgAir == null ? "—" : avgAir.toFixed(1);
                     return (
                       <motion.div
                         key={key}
@@ -1116,7 +1180,8 @@ export default function DashboardPage() {
                             <span className="text-xs font-normal text-slate-400 dark:text-white/25 ml-1">{unit}</span>
                           </p>
                           <p className="text-[10px] text-slate-500 dark:text-white/35 mt-2">
-                            {displaySensors.length} capteur{displaySensors.length !== 1 ? "s" : ""} · seuils : optimal ≤ {AIR_INDEX_OPTIMAL_MAX}, dangereux {AIR_INDEX_WARN_MIN}–{AIR_INDEX_WARN_MAX}, interdit ≥ {AIR_INDEX_DANGER_MIN}
+                            {displaySensors.length} capteur{displaySensors.length !== 1 ? "s" : ""} · seuils :{" "}
+                            {`optimal : indice < ${AIR_INDEX_WARN_MIN}, alerte ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX}, danger ≥ ${AIR_INDEX_DANGER_MIN}`}
                           </p>
                         </div>
                       </motion.div>
@@ -1191,14 +1256,12 @@ export default function DashboardPage() {
                               <YAxis domain={[0, chartYMax]} axisLine={false} tickLine={false} tick={chartTickStyle} />
                               <Tooltip
                                 contentStyle={chartTooltipStyle}
-                                labelFormatter={(v) =>
-                                  typeof v === "number" ? new Date(v).toLocaleString("fr-FR") : String(v)
-                                }
+                                labelFormatter={(label) => formatAirChartTooltipLabel(label)}
                               />
                               <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
                               <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
                               <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
-                              <ReferenceLine y={AIR_INDEX_OPTIMAL_MAX} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
+                              <ReferenceLine y={AIR_INDEX_WARN_MIN} stroke="#f97316" strokeDasharray="4 4" strokeOpacity={0.5} />
                               <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
                               <Legend
                                 wrapperStyle={{ fontSize: "10px", paddingTop: 8 }}
@@ -1248,14 +1311,12 @@ export default function DashboardPage() {
                             <YAxis domain={[0, chartYMax10m]} axisLine={false} tickLine={false} tick={chartTickStyle} />
                             <Tooltip
                               contentStyle={chartTooltipStyle}
-                              labelFormatter={(v) =>
-                                typeof v === "number" ? new Date(v).toLocaleString("fr-FR") : String(v)
-                              }
+                              labelFormatter={(label) => formatAirChartTooltipLabel(label)}
                             />
                             <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
                             <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
                             <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax10m} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
-                            <ReferenceLine y={AIR_INDEX_OPTIMAL_MAX} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
+                            <ReferenceLine y={AIR_INDEX_WARN_MIN} stroke="#f97316" strokeDasharray="4 4" strokeOpacity={0.5} />
                             <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
                             <Legend
                               wrapperStyle={{ fontSize: "10px", paddingTop: 8 }}
@@ -1307,7 +1368,7 @@ export default function DashboardPage() {
                       <div className="flex justify-between items-center mb-2">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-orange-400">Score Qualité Air</p>
                         <span className={`text-[9px] font-black ${statusColors.text}`}>
-                          {qualityScore}/100
+                          {avgAir == null ? "—" : `${qualityScore}/100`}
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 dark:bg-black/30 h-1.5 rounded-full overflow-hidden">
@@ -1411,15 +1472,41 @@ export default function DashboardPage() {
                 {/* Sensor header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-3xl border border-slate-200 dark:border-white/5 bg-white dark:bg-black/30 shadow-sm dark:shadow-none p-6">
                   <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-2xl ${displaySensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "bg-emerald-500/15 text-emerald-400" : displaySensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "bg-orange-500/15 text-orange-400" : "bg-red-500/15 text-red-400"}`}>
+                    <div
+                      className={`p-3 rounded-2xl ${
+                        selectedSensor?.status === "good"
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : selectedSensor?.status === "warning"
+                            ? "bg-orange-500/15 text-orange-400"
+                            : selectedSensor?.status === "danger"
+                              ? "bg-red-500/15 text-red-400"
+                              : "bg-slate-500/15 text-slate-400"
+                      }`}
+                    >
                       <Cpu size={24} />
                     </div>
                     <div>
-                      <h2 className="text-lg font-black text-slate-900 dark:text-white">{displaySensors.find((s) => s.id === selectedSensorId)?.name}</h2>
+                      <h2 className="text-lg font-black text-slate-900 dark:text-white">{selectedSensor?.name}</h2>
                       <div className="flex items-center gap-2 mt-1">
-                        <div className={`h-1.5 w-1.5 rounded-full ${displaySensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "bg-emerald-500" : displaySensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "bg-orange-500 animate-pulse" : "bg-red-500 animate-pulse"}`} />
+                        <div
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            selectedSensor?.status === "good"
+                              ? "bg-emerald-500"
+                              : selectedSensor?.status === "warning"
+                                ? "bg-orange-500 animate-pulse"
+                                : selectedSensor?.status === "danger"
+                                  ? "bg-red-500 animate-pulse"
+                                  : "bg-slate-400"
+                          }`}
+                        />
                         <span className="text-xs text-slate-500 dark:text-white/40">
-                          {displaySensors.find((s) => s.id === selectedSensorId)?.status === "good" ? "Capteur opérationnel" : displaySensors.find((s) => s.id === selectedSensorId)?.status === "warning" ? "Attention — Qualité dégradée" : "Critique — Seuil dépassé"}
+                          {selectedSensor?.status === "good"
+                            ? "Capteur opérationnel"
+                            : selectedSensor?.status === "warning"
+                              ? "Alerte — qualité dégradée"
+                              : selectedSensor?.status === "danger"
+                                ? "Danger — seuil critique dépassé"
+                                : "Hors service — aucune donnée reçue"}
                         </span>
                       </div>
                     </div>
@@ -1439,9 +1526,9 @@ export default function DashboardPage() {
                   <SensorCard
                     name="Qualité de l'air"
                     type="air"
-                    value={Math.round(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
-                    unit="indice"
-                    status={displaySensors.find((s) => s.id === selectedSensorId)?.status || "good"}
+                    value={selectedSensor?.airQualite == null ? "—" : Math.round(selectedSensor.airQualite)}
+                    unit={selectedSensor?.airQualite == null ? "" : "indice"}
+                    status={selectedSensor?.status ?? "good"}
                     lastUpdated="En direct"
                     compact
                   />
@@ -1452,7 +1539,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between gap-3 mb-6">
                     <div>
                       <h3 className="font-bold text-slate-900 dark:text-white">Évolution du Capteur</h3>
-                      <p className="text-[11px] text-slate-500 dark:text-white/30 mt-0.5">{displaySensors.find((s) => s.id === selectedSensorId)?.name}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-white/30 mt-0.5">{selectedSensor?.name}</p>
                     </div>
                     <span className="text-[11px] font-semibold text-slate-500 dark:text-white/45 shrink-0">En direct</span>
                   </div>
@@ -1470,12 +1557,12 @@ export default function DashboardPage() {
                           <linearGradient id="colorSensor" x1="0" y1="0" x2="0" y2="1">
                             <stop
                               offset="5%"
-                              stopColor={strokeForAirIndex(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                              stopColor={strokeForAirIndex(selectedSensor?.airQualite)}
                               stopOpacity={0.35}
                             />
                             <stop
                               offset="95%"
-                              stopColor={strokeForAirIndex(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                              stopColor={strokeForAirIndex(selectedSensor?.airQualite)}
                               stopOpacity={0}
                             />
                           </linearGradient>
@@ -1499,17 +1586,20 @@ export default function DashboardPage() {
                           }
                         />
                         <YAxis domain={[0, chartYMax]} axisLine={false} tickLine={false} tick={chartTickStyle} />
-                        <Tooltip contentStyle={chartTooltipStyle} />
+                        <Tooltip
+                          contentStyle={chartTooltipStyle}
+                          labelFormatter={(label) => formatAirChartTooltipLabel(label)}
+                        />
                         <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
                         <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
                         <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
-                        <ReferenceLine y={AIR_INDEX_OPTIMAL_MAX} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.5} />
+                        <ReferenceLine y={AIR_INDEX_WARN_MIN} stroke="#f97316" strokeDasharray="4 4" strokeOpacity={0.5} />
                         <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
                         <Area
                           type="monotone"
                           dataKey="air"
                           name="Indice"
-                          stroke={strokeForAirIndex(displaySensors.find((s) => s.id === selectedSensorId)?.airQualite ?? 0)}
+                          stroke={strokeForAirIndex(selectedSensor?.airQualite)}
                           fillOpacity={1}
                           fill="url(#colorSensor)"
                           strokeWidth={2.5}

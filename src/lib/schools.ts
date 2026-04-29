@@ -1,27 +1,28 @@
 import { supabase } from "./supabase";
 
-export type AirStatus = "Optimal" | "Dangereux" | "Interdit d'accès";
+export type AirStatus = "Optimal" | "Alerte" | "Danger" | "Hors Service";
 
 /**
- * Indice qualité de l’air (capteur type 0–200+). Plus la valeur est élevée, plus la pollution intérieure est forte.
- * - ≤ optimalMax : situation saine pour un fablab (objectif courant).
- * - entre warnMin et warnMax : dégradation — ventilation / réduction des sources.
- * - ≥ dangerMin : pic sévère — accès à restreindre (correspond à « Interdit d’accès » si au moins un capteur y est).
+ * Indice qualité de l’air. Seuils affichés dans l’UI :
+ * - valeur < warnMin : optimal (vert)
+ * - warnMin à warnMax : alerte (orange)
+ * - ≥ dangerMin : danger (rouge)
+ * - pas de valeur : hors service (timeout ou capteur HS)
  */
-export const AIR_INDEX_OPTIMAL_MAX = 64;
-export const AIR_INDEX_WARN_MIN = 65;
-export const AIR_INDEX_WARN_MAX = 119;
-export const AIR_INDEX_DANGER_MIN = 120;
+export const AIR_INDEX_OPTIMAL_MAX = 99;
+export const AIR_INDEX_WARN_MIN = 100;
+export const AIR_INDEX_WARN_MAX = 299;
+export const AIR_INDEX_DANGER_MIN = 300;
 
-/** Lit une valeur `air_qualite` Supabase (nombre, chaîne, null) sans produire NaN. */
-export function parseAirQualite(raw: unknown): number {
-  if (raw == null || raw === "") return 0;
+/** Lit une valeur `air_qualite` Supabase ; `null` = absence de donnée fiable. */
+export function parseAirQualite(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
   if (typeof raw === "string") {
     const n = Number(String(raw).replace(",", ".").trim());
-    return Number.isFinite(n) ? Math.max(0, n) : 0;
+    return Number.isFinite(n) ? Math.max(0, n) : null;
   }
-  return 0;
+  return null;
 }
 
 function parsePlacement(raw: unknown): number {
@@ -39,9 +40,9 @@ export interface SensorData {
   name: string;
   /** Ordre d'affichage (colonne `placement` en base, 1 = premier). */
   placement: number;
-  /** Indice qualité de l'air renvoyé par le capteur (plus la valeur est élevée, plus la dégradation est forte). */
-  airQualite: number;
-  status: "good" | "warning" | "danger";
+  /** Indice qualité de l'air ; `null` si aucune donnée (timeout, capteur HS). */
+  airQualite: number | null;
+  status: "good" | "warning" | "danger" | "offline";
 }
 
 export interface School {
@@ -135,10 +136,10 @@ export async function fetchTechnicians(fablabId: string): Promise<Technician[]> 
 }
 
 export const schools: School[] = [
-  { 
-    id: "1", 
-    name: "Lycée Henri IV", 
-    city: "Paris", 
+  {
+    id: "1",
+    name: "Lycée Henri IV",
+    city: "Paris",
     status: "Optimal",
     sensors: [
       { id: "s1", name: "Imprimante 3D FDM", placement: 1, airQualite: 52, status: "good" },
@@ -146,45 +147,45 @@ export const schools: School[] = [
       { id: "s3", name: "Fraiseuse CNC", placement: 3, airQualite: 71, status: "good" },
       { id: "s4", name: "Imprimante Résine", placement: 4, airQualite: 48, status: "good" },
       { id: "s5", name: "Scanner 3D", placement: 5, airQualite: 55, status: "good" },
-    ]
+    ],
   },
-  { 
-    id: "2", 
-    name: "École Poly-Tech", 
-    city: "Lyon", 
-    status: "Dangereux",
+  {
+    id: "2",
+    name: "École Poly-Tech",
+    city: "Lyon",
+    status: "Alerte",
     sensors: [
-      { id: "s1", name: "Découpe Laser CO2", placement: 1, airQualite: 95, status: "warning" },
-      { id: "s2", name: "Imprimante Acrylique", placement: 2, airQualite: 108, status: "warning" },
-      { id: "s3", name: "Traceur de Découpe", placement: 3, airQualite: 88, status: "warning" },
-      { id: "s4", name: "Presse à Chaud", placement: 4, airQualite: 102, status: "warning" },
-    ]
+      { id: "s1", name: "Découpe Laser CO2", placement: 1, airQualite: 120, status: "warning" },
+      { id: "s2", name: "Imprimante Acrylique", placement: 2, airQualite: 150, status: "warning" },
+      { id: "s3", name: "Traceur de Découpe", placement: 3, airQualite: 110, status: "warning" },
+      { id: "s4", name: "Presse à Chaud", placement: 4, airQualite: 130, status: "warning" },
+    ],
   },
-  { 
-    id: "3", 
-    name: "Institut Oxalys", 
-    city: "Bordeaux", 
-    status: "Interdit d'accès",
+  {
+    id: "3",
+    name: "Institut Oxalys",
+    city: "Bordeaux",
+    status: "Danger",
     sensors: [
-      { id: "s1", name: "Ligne Impression Industrielle", placement: 1, airQualite: 165, status: "danger" },
-      { id: "s2", name: "Bras Robotisé", placement: 2, airQualite: 178, status: "danger" },
-      { id: "s3", name: "Banc de Test Électrique", placement: 3, airQualite: 152, status: "danger" },
-      { id: "s4", name: "Imprimante 3D SLS", placement: 4, airQualite: 142, status: "danger" },
-      { id: "s5", name: "Poste Soudage CMS", placement: 5, airQualite: 170, status: "danger" },
-      { id: "s6", name: "Four de Refusion", placement: 6, airQualite: 158, status: "danger" },
-    ]
+      { id: "s1", name: "Ligne Impression Industrielle", placement: 1, airQualite: 320, status: "danger" },
+      { id: "s2", name: "Bras Robotisé", placement: 2, airQualite: 350, status: "danger" },
+      { id: "s3", name: "Banc de Test Électrique", placement: 3, airQualite: 310, status: "danger" },
+      { id: "s4", name: "Imprimante 3D SLS", placement: 4, airQualite: 305, status: "danger" },
+      { id: "s5", name: "Poste Soudage CMS", placement: 5, airQualite: 330, status: "danger" },
+      { id: "s6", name: "Four de Refusion", placement: 6, airQualite: 315, status: "danger" },
+    ],
   },
-  { 
-    id: "4", 
-    name: "Collège des Explorateurs", 
-    city: "Nantes", 
+  {
+    id: "4",
+    name: "Collège des Explorateurs",
+    city: "Nantes",
     status: "Optimal",
     sensors: [
       { id: "s1", name: "Imprimante 3D Édu", placement: 1, airQualite: 45, status: "good" },
       { id: "s2", name: "Découpeuse Vinyle", placement: 2, airQualite: 58, status: "good" },
       { id: "s3", name: "Machine à Coudre", placement: 3, airQualite: 62, status: "good" },
       { id: "s4", name: "Poste Informatique", placement: 4, airQualite: 51, status: "good" },
-    ]
+    ],
   },
 ];
 
@@ -200,35 +201,31 @@ function parseEquipements(value: FablabRow["equipements"]): string[] {
   }
 }
 
-function getSensorStatus(airQualite: number): SensorData["status"] {
-  if (!Number.isFinite(airQualite)) return "good";
+function getSensorStatus(airQualite: number | null): SensorData["status"] {
+  if (airQualite == null || !Number.isFinite(airQualite)) return "offline";
   if (airQualite >= AIR_INDEX_DANGER_MIN) return "danger";
   if (airQualite >= AIR_INDEX_WARN_MIN) return "warning";
   return "good";
 }
 
 /**
- * État global du fablab : basé sur la **moyenne** de l’indice (cohérent avec la carte « indice moyen »).
- * Les statuts par capteur (points warning/danger) restent pour repérer un capteur isolé.
+ * État global du fablab : basé sur la **moyenne** des indices valides (capteurs sans donnée exclus).
  */
 function computeAirStatus(sensors: SensorData[]): AirStatus {
-  const vals = sensors.map((s) => s.airQualite).filter((v) => Number.isFinite(v));
-  if (vals.length === 0) return "Optimal";
+  const vals = sensors
+    .map((s) => s.airQualite)
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  if (vals.length === 0) return "Hors Service";
   const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-  if (avg >= AIR_INDEX_DANGER_MIN) return "Interdit d'accès";
-  if (avg >= AIR_INDEX_WARN_MIN) return "Dangereux";
+  if (avg >= AIR_INDEX_DANGER_MIN) return "Danger";
+  if (avg >= AIR_INDEX_WARN_MIN) return "Alerte";
   return "Optimal";
 }
 
 export async function fetchFablabs(): Promise<School[]> {
   const [{ data: fablabsData, error: fablabsError }, { data: stationsData, error: stationsError }] = await Promise.all([
-    supabase
-    .from('fablab')
-      .select('*'),
-    supabase
-      .from("station")
-      .select("*")
-      .order("id", { ascending: true }),
+    supabase.from("fablab").select("*"),
+    supabase.from("station").select("*").order("id", { ascending: true }),
   ]);
 
   if (fablabsError) {
@@ -267,8 +264,7 @@ export async function fetchFablabs(): Promise<School[]> {
       const status = getSensorStatus(airQualite);
       const pl = parsePlacement(station.placement);
       const nomDb = typeof station.nom === "string" ? station.nom.trim() : "";
-      const fromEquip =
-        pl > 0 ? equipements[pl - 1] : undefined;
+      const fromEquip = pl > 0 ? equipements[pl - 1] : undefined;
       const name =
         nomDb ||
         (typeof fromEquip === "string" ? fromEquip : undefined) ||
@@ -307,25 +303,34 @@ export function getStatusColor(status: AirStatus) {
         text: "text-emerald-600 dark:text-emerald-400",
         badge: "text-emerald-600 dark:text-emerald-200",
         dot: "bg-emerald-500",
-        lightText: "text-emerald-700 dark:text-emerald-100"
+        lightText: "text-emerald-700 dark:text-emerald-100",
       };
-    case "Dangereux":
+    case "Alerte":
       return {
         border: "border-orange-300/20",
         bg: "bg-orange-400/10",
         text: "text-orange-600 dark:text-orange-400",
         badge: "text-orange-600 dark:text-orange-200",
         dot: "bg-orange-500",
-        lightText: "text-orange-700 dark:text-orange-100"
+        lightText: "text-orange-700 dark:text-orange-100",
       };
-    case "Interdit d'accès":
+    case "Danger":
       return {
         border: "border-red-300/20",
         bg: "bg-red-400/10",
         text: "text-red-600 dark:text-red-400",
         badge: "text-red-600 dark:text-red-200",
         dot: "bg-red-500",
-        lightText: "text-red-700 dark:text-red-100"
+        lightText: "text-red-700 dark:text-red-100",
+      };
+    case "Hors Service":
+      return {
+        border: "border-slate-400/25",
+        bg: "bg-slate-400/10",
+        text: "text-slate-600 dark:text-slate-400",
+        badge: "text-slate-600 dark:text-slate-300",
+        dot: "bg-slate-500",
+        lightText: "text-slate-700 dark:text-slate-200",
       };
     default:
       return {
@@ -334,7 +339,7 @@ export function getStatusColor(status: AirStatus) {
         text: "text-slate-600 dark:text-slate-400",
         badge: "text-slate-600 dark:text-slate-200",
         dot: "bg-slate-500",
-        lightText: "text-slate-700 dark:text-slate-100"
+        lightText: "text-slate-700 dark:text-slate-100",
       };
   }
 }
@@ -342,11 +347,13 @@ export function getStatusColor(status: AirStatus) {
 export function getStatusLabel(status: AirStatus) {
   switch (status) {
     case "Optimal":
-      return "Aucun risque — conditions favorables";
-    case "Dangereux":
-      return "Accès autorisé : aérez la zone et restez vigilant";
-    case "Interdit d'accès":
-      return "Accès interdit — ne pas occuper la zone";
+      return "Indice sous le seuil d’alerte — conditions favorables";
+    case "Alerte":
+      return "Surveillez la ventilation et les sources de pollution";
+    case "Danger":
+      return "Indice élevé — renforcez la ventilation et limitez l’exposition";
+    case "Hors Service":
+      return "Aucune donnée reçue — vérifiez capteurs et connectivité";
     default:
       return "";
   }

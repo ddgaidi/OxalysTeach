@@ -6,7 +6,7 @@ import {
   getStatusColor,
   getStatusLabel,
   AirStatus,
-  AIR_INDEX_OPTIMAL_MAX,
+  AIR_INDEX_WARN_MIN,
   AIR_INDEX_DANGER_MIN,
 } from "@/src/lib/schools";
 import {
@@ -155,7 +155,7 @@ export default function Home() {
         const school = allSchools.find((s) => s.name === decodedName);
         if (school) {
           setAirStatus(school.status);
-          const vals = school.sensors.map((s) => s.airQualite).filter((v) => Number.isFinite(v));
+          const vals = school.sensors.map((s) => s.airQualite).filter((v): v is number => v != null && Number.isFinite(v));
           setAvgAirIndex(vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
         }
       }
@@ -309,9 +309,11 @@ export default function Home() {
                             ? 100 - (avgAirIndex / (AIR_INDEX_DANGER_MIN * 1.35)) * 100
                             : airStatus === "Optimal"
                               ? 88
-                              : airStatus === "Dangereux"
-                                ? 48
-                                : 22,
+                              : airStatus === "Alerte"
+                                ? 55
+                                : airStatus === "Danger"
+                                  ? 22
+                                  : 12,
                         ),
                       )}%`,
                     }}
@@ -326,7 +328,7 @@ export default function Home() {
                 {
                   label: "Indice qualité de l'air (moy.)",
                   value: avgAirIndex != null ? `${avgAirIndex.toFixed(1)}` : "—",
-                  ok: avgAirIndex == null ? true : avgAirIndex <= AIR_INDEX_OPTIMAL_MAX,
+                  ok: avgAirIndex == null ? false : avgAirIndex < AIR_INDEX_WARN_MIN,
                 },
                 { label: "Ventilation", value: "À adapter selon l'indice", ok: true },
                 { label: "Dernière alerte", value: "Voir le tableau de bord", ok: true },

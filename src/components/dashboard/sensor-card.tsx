@@ -8,7 +8,7 @@ interface SensorCardProps {
   type: "temp" | "hum" | "co2" | "voc" | "air";
   value: string | number;
   unit: string;
-  status: "good" | "warning" | "danger";
+  status: "good" | "warning" | "danger" | "offline";
   lastUpdated: string;
   /** Mise en page plus dense (vue détail capteur) */
   compact?: boolean;
@@ -30,6 +30,7 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
       case "good": return "bg-green-500/10 text-green-600 border-green-200 dark:border-green-900/30";
       case "warning": return "bg-orange-500/10 text-orange-600 border-orange-200 dark:border-orange-900/30";
       case "danger": return "bg-red-500/10 text-red-600 border-red-200 dark:border-red-900/30";
+      case "offline": return "bg-slate-500/10 text-slate-600 border-slate-200 dark:border-slate-700/40";
     }
   };
 
@@ -57,7 +58,13 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
           <div className="flex flex-col items-end shrink-0">
             <span className="text-[9px] uppercase font-bold tracking-wider opacity-70">Statut</span>
             <span className="text-xs font-bold">
-              {status === "good" ? "Normal" : status === "warning" ? "Attention" : "Critique"}
+              {status === "good"
+                ? "Optimal"
+                : status === "warning"
+                  ? "Alerte"
+                  : status === "danger"
+                    ? "Danger"
+                    : "Hors service"}
             </span>
           </div>
         </div>
@@ -81,7 +88,13 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
         <div className="flex flex-col items-end">
           <span className="text-[10px] uppercase font-bold tracking-wider opacity-70">Status</span>
           <span className="text-xs font-semibold">
-            {status === "good" ? "Normal" : status === "warning" ? "Attention" : "Critique"}
+            {status === "good"
+              ? "Optimal"
+              : status === "warning"
+                ? "Alerte"
+                : status === "danger"
+                  ? "Danger"
+                  : "Hors service"}
           </span>
         </div>
       </div>
