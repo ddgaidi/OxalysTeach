@@ -74,6 +74,7 @@ interface StationRow {
   id: number;
   fablab_id: string;
   created_at: string;
+  last_seen_at?: string | null;
   air_qualite?: number | null;
   nom?: string | null;
   placement?: number | null;
@@ -204,8 +205,8 @@ function parseEquipements(value: FablabRow["equipements"]): string[] {
   }
 }
 
-function getSensorStatus(airQualite: number | null): SensorData["status"] {
-  if (airQualite == null || !Number.isFinite(airQualite)) return "offline";
+function getSensorStatus(airQualite: number | null, offline = false): SensorData["status"] {
+  if (offline || airQualite == null || !Number.isFinite(airQualite)) return "offline";
   if (airQualite >= AIR_INDEX_DANGER_MIN) return "danger";
   if (airQualite >= AIR_INDEX_WARN_MIN) return "warning";
   if (airQualite >= AIR_INDEX_MEDIUM_MIN) return "medium";
@@ -266,7 +267,10 @@ export async function fetchFablabs(): Promise<School[]> {
 
     const sensors: SensorData[] = sortedStations.map((station, index) => {
       const airQualite = parseAirQualite(station.air_qualite);
-      const status = getSensorStatus(airQualite);
+      const offline =
+        !station.last_seen_at ||
+        Date.now() - new Date(station.last_seen_at).getTime() > 10000;
+      const status = getSensorStatus(airQualite, offline);
       const pl = parsePlacement(station.placement);
       const nomDb = typeof station.nom === "string" ? station.nom.trim() : "";
       const fromEquip = pl > 0 ? equipements[pl - 1] : undefined;
