@@ -42,6 +42,8 @@ import {
   Teacher,
   Technician,
   AIR_INDEX_OPTIMAL_MAX,
+  AIR_INDEX_MEDIUM_MIN,
+  AIR_INDEX_MEDIUM_MAX,
   AIR_INDEX_WARN_MIN,
   AIR_INDEX_WARN_MAX,
   AIR_INDEX_DANGER_MIN,
@@ -69,6 +71,7 @@ function strokeForAirIndex(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "#94a3b8";
   if (v >= AIR_INDEX_DANGER_MIN) return "#ef4444";
   if (v >= AIR_INDEX_WARN_MIN) return "#f97316";
+  if (v >= AIR_INDEX_MEDIUM_MIN) return "#eab308";
   return "#22c55e";
 }
 
@@ -219,7 +222,7 @@ type DashboardNotification = {
   title: string;
   message: string;
   timeLabel: string;
-  type: "critical" | "warning" | "success";
+  type: "critical" | "medium" | "warning" | "success";
   createdAt: number;
 };
 
@@ -252,20 +255,23 @@ function airStatusLabelFr(s: AirStatus): string {
   switch (s) {
     case "Optimal":
       return "Optimal";
+    case "Moyen":
+      return "Moyen";
     case "Alerte":
       return "Alerte";
     case "Danger":
       return "Danger";
-    case "Hors Service":
-      return "Hors Service";
+    case "Hors service":
+      return "Hors service";
     default:
       return String(s);
   }
 }
 
 function notificationTypeForAirChange(from: AirStatus, to: AirStatus): DashboardNotification["type"] {
-  if (to === "Danger" || to === "Hors Service") return "critical";
+  if (to === "Danger" || to === "Hors service") return "critical";
   if (to === "Optimal") return "success";
+  if (to === "Moyen") return "medium";
   if (from === "Danger" && to === "Alerte") return "warning";
   return "warning";
 }
@@ -694,22 +700,26 @@ export default function DashboardPage() {
         niveauTip:
           "Aucune donnée valide des capteurs (timeout ou hors service). Vérifiez les connexions et l'état des équipements.",
         ventilationTip: "—",
-        suiviTip: `Seuils : vert indice < ${AIR_INDEX_WARN_MIN} (optimal), orange ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX} (alerte), rouge ≥ ${AIR_INDEX_DANGER_MIN} (danger).`,
+        suiviTip: `Seuils : vert < ${AIR_INDEX_MEDIUM_MIN} (optimal), jaune ${AIR_INDEX_MEDIUM_MIN}-${AIR_INDEX_MEDIUM_MAX} (moyen), orange ${AIR_INDEX_WARN_MIN}-${AIR_INDEX_WARN_MAX} (alerte), rouge >= ${AIR_INDEX_DANGER_MIN} (danger).`,
       };
     }
     const a = avgAir;
     return {
       niveauTip:
-        a < AIR_INDEX_WARN_MIN
-          ? `Indice moyen < ${AIR_INDEX_WARN_MIN} (optimal) : situation favorable, maintenez une ventilation de fond pendant les ateliers.`
+        a < AIR_INDEX_MEDIUM_MIN
+          ? `Indice moyen < ${AIR_INDEX_MEDIUM_MIN} (optimal) : situation favorable, maintenez une ventilation de fond pendant les ateliers.`
+          : a < AIR_INDEX_WARN_MIN
+            ? `Entre ${AIR_INDEX_MEDIUM_MIN} et ${AIR_INDEX_MEDIUM_MAX} (moyen) : gardez la ventilation active et surveillez l'évolution.`
           : a < AIR_INDEX_DANGER_MIN
             ? `Entre ${AIR_INDEX_WARN_MIN} et ${AIR_INDEX_WARN_MAX} (alerte) : aérez davantage et réduisez les sources (poussières, colles, machines).`
-            : `≥ ${AIR_INDEX_DANGER_MIN} (danger) : niveau critique — ventilez fortement, limitez l'exposition et vérifiez les capteurs en rouge.`,
+            : `>= ${AIR_INDEX_DANGER_MIN} (danger) : niveau critique - ventilez fortement, limitez l'exposition et vérifiez les capteurs en rouge.`,
       ventilationTip:
         a >= AIR_INDEX_WARN_MIN
           ? "Ouvrez en grand ou lancez l'extraction mécanique pour faire redescendre l'indice rapidement."
-          : "Une aération courte mais régulière suffit souvent à rester dans la zone verte du graphique.",
-      suiviTip: `Les bandes du graphique : vert < ${AIR_INDEX_WARN_MIN} (optimal), orange ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX} (alerte), rouge ≥ ${AIR_INDEX_DANGER_MIN} (danger).`,
+          : a >= AIR_INDEX_MEDIUM_MIN
+            ? "Augmentez la ventilation avant que l'indice n'entre en zone alerte."
+            : "Une aération courte mais régulière suffit souvent à rester dans la zone verte du graphique.",
+      suiviTip: `Les bandes du graphique : vert < ${AIR_INDEX_MEDIUM_MIN} (optimal), jaune ${AIR_INDEX_MEDIUM_MIN}-${AIR_INDEX_MEDIUM_MAX} (moyen), orange ${AIR_INDEX_WARN_MIN}-${AIR_INDEX_WARN_MAX} (alerte), rouge >= ${AIR_INDEX_DANGER_MIN} (danger).`,
     };
   }, [avgAir]);
 
@@ -916,6 +926,8 @@ export default function DashboardPage() {
                     <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                       sensor.status === "good"
                         ? "bg-emerald-500"
+                        : sensor.status === "medium"
+                          ? "bg-yellow-500 animate-pulse"
                         : sensor.status === "warning"
                           ? "bg-orange-500 animate-pulse"
                           : sensor.status === "danger"
@@ -1076,6 +1088,8 @@ export default function DashboardPage() {
                                   className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${
                                     notif.type === "critical"
                                       ? "bg-red-500"
+                                      : notif.type === "medium"
+                                        ? "bg-yellow-500"
                                       : notif.type === "warning"
                                         ? "bg-orange-500"
                                         : "bg-emerald-500"
@@ -1123,9 +1137,11 @@ export default function DashboardPage() {
                     <span className="text-[10px] text-slate-400 dark:text-white/30 hidden sm:block">
                       {airStatus === "Optimal"
                         ? "Aucun risque identifié sur la moyenne des capteurs"
-                        : airStatus === "Alerte"
-                          ? "Surveillance recommandée — indice moyen en zone alerte"
-                          : airStatus === "Danger"
+                        : airStatus === "Moyen"
+                          ? "Qualité moyenne : ventilation à surveiller"
+                          : airStatus === "Alerte"
+                            ? "Surveillance recommandée — indice moyen en zone alerte"
+                            : airStatus === "Danger"
                             ? "Niveau critique sur la moyenne des capteurs"
                             : "Données absentes ou capteurs non joignables"}
                     </span>
@@ -1181,7 +1197,7 @@ export default function DashboardPage() {
                           </p>
                           <p className="text-[10px] text-slate-500 dark:text-white/35 mt-2">
                             {displaySensors.length} capteur{displaySensors.length !== 1 ? "s" : ""} · seuils :{" "}
-                            {`optimal : indice < ${AIR_INDEX_WARN_MIN}, alerte ${AIR_INDEX_WARN_MIN}–${AIR_INDEX_WARN_MAX}, danger ≥ ${AIR_INDEX_DANGER_MIN}`}
+                            {`optimal < ${AIR_INDEX_MEDIUM_MIN}, moyen ${AIR_INDEX_MEDIUM_MIN}-${AIR_INDEX_MEDIUM_MAX}, alerte ${AIR_INDEX_WARN_MIN}-${AIR_INDEX_WARN_MAX}, danger >= ${AIR_INDEX_DANGER_MIN}`}
                           </p>
                         </div>
                       </motion.div>
@@ -1259,8 +1275,10 @@ export default function DashboardPage() {
                                 labelFormatter={(label) => formatAirChartTooltipLabel(label)}
                               />
                               <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
+                              <ReferenceArea y1={AIR_INDEX_MEDIUM_MIN} y2={AIR_INDEX_MEDIUM_MAX} fill="#eab308" fillOpacity={isDark ? 0.06 : 0.1} />
                               <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
                               <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
+                              <ReferenceLine y={AIR_INDEX_MEDIUM_MIN} stroke="#eab308" strokeDasharray="4 4" strokeOpacity={0.5} />
                               <ReferenceLine y={AIR_INDEX_WARN_MIN} stroke="#f97316" strokeDasharray="4 4" strokeOpacity={0.5} />
                               <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
                               <Legend
@@ -1314,8 +1332,10 @@ export default function DashboardPage() {
                               labelFormatter={(label) => formatAirChartTooltipLabel(label)}
                             />
                             <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
+                            <ReferenceArea y1={AIR_INDEX_MEDIUM_MIN} y2={AIR_INDEX_MEDIUM_MAX} fill="#eab308" fillOpacity={isDark ? 0.06 : 0.1} />
                             <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
                             <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax10m} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
+                            <ReferenceLine y={AIR_INDEX_MEDIUM_MIN} stroke="#eab308" strokeDasharray="4 4" strokeOpacity={0.5} />
                             <ReferenceLine y={AIR_INDEX_WARN_MIN} stroke="#f97316" strokeDasharray="4 4" strokeOpacity={0.5} />
                             <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
                             <Legend
@@ -1476,6 +1496,8 @@ export default function DashboardPage() {
                       className={`p-3 rounded-2xl ${
                         selectedSensor?.status === "good"
                           ? "bg-emerald-500/15 text-emerald-400"
+                          : selectedSensor?.status === "medium"
+                            ? "bg-yellow-500/15 text-yellow-400"
                           : selectedSensor?.status === "warning"
                             ? "bg-orange-500/15 text-orange-400"
                             : selectedSensor?.status === "danger"
@@ -1492,6 +1514,8 @@ export default function DashboardPage() {
                           className={`h-1.5 w-1.5 rounded-full ${
                             selectedSensor?.status === "good"
                               ? "bg-emerald-500"
+                              : selectedSensor?.status === "medium"
+                                ? "bg-yellow-500 animate-pulse"
                               : selectedSensor?.status === "warning"
                                 ? "bg-orange-500 animate-pulse"
                                 : selectedSensor?.status === "danger"
@@ -1502,6 +1526,8 @@ export default function DashboardPage() {
                         <span className="text-xs text-slate-500 dark:text-white/40">
                           {selectedSensor?.status === "good"
                             ? "Capteur opérationnel"
+                            : selectedSensor?.status === "medium"
+                              ? "Moyen : ventilation à surveiller"
                             : selectedSensor?.status === "warning"
                               ? "Alerte — qualité dégradée"
                               : selectedSensor?.status === "danger"
@@ -1591,8 +1617,10 @@ export default function DashboardPage() {
                           labelFormatter={(label) => formatAirChartTooltipLabel(label)}
                         />
                         <ReferenceArea y1={0} y2={AIR_INDEX_OPTIMAL_MAX} fill="#22c55e" fillOpacity={isDark ? 0.07 : 0.12} />
+                        <ReferenceArea y1={AIR_INDEX_MEDIUM_MIN} y2={AIR_INDEX_MEDIUM_MAX} fill="#eab308" fillOpacity={isDark ? 0.06 : 0.1} />
                         <ReferenceArea y1={AIR_INDEX_WARN_MIN} y2={AIR_INDEX_WARN_MAX} fill="#f97316" fillOpacity={isDark ? 0.06 : 0.1} />
                         <ReferenceArea y1={AIR_INDEX_DANGER_MIN} y2={chartYMax} fill="#ef4444" fillOpacity={isDark ? 0.07 : 0.11} />
+                        <ReferenceLine y={AIR_INDEX_MEDIUM_MIN} stroke="#eab308" strokeDasharray="4 4" strokeOpacity={0.5} />
                         <ReferenceLine y={AIR_INDEX_WARN_MIN} stroke="#f97316" strokeDasharray="4 4" strokeOpacity={0.5} />
                         <ReferenceLine y={AIR_INDEX_DANGER_MIN} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.5} />
                         <Area

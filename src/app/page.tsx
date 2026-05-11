@@ -6,7 +6,7 @@ import {
   getStatusColor,
   getStatusLabel,
   AirStatus,
-  AIR_INDEX_WARN_MIN,
+  AIR_INDEX_MEDIUM_MIN,
   AIR_INDEX_DANGER_MIN,
 } from "@/src/lib/schools";
 import {
@@ -309,6 +309,8 @@ export default function Home() {
                             ? 100 - (avgAirIndex / (AIR_INDEX_DANGER_MIN * 1.35)) * 100
                             : airStatus === "Optimal"
                               ? 88
+                              : airStatus === "Moyen"
+                                ? 70
                               : airStatus === "Alerte"
                                 ? 55
                                 : airStatus === "Danger"
@@ -328,7 +330,7 @@ export default function Home() {
                 {
                   label: "Indice qualité de l'air (moy.)",
                   value: avgAirIndex != null ? `${avgAirIndex.toFixed(1)}` : "—",
-                  ok: avgAirIndex == null ? false : avgAirIndex < AIR_INDEX_WARN_MIN,
+                  ok: avgAirIndex == null ? false : avgAirIndex < AIR_INDEX_MEDIUM_MIN,
                 },
                 { label: "Ventilation", value: "À adapter selon l'indice", ok: true },
                 { label: "Dernière alerte", value: "Voir le tableau de bord", ok: true },

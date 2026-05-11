@@ -8,7 +8,7 @@ interface SensorCardProps {
   type: "temp" | "hum" | "co2" | "voc" | "air";
   value: string | number;
   unit: string;
-  status: "good" | "warning" | "danger" | "offline";
+  status: "good" | "medium" | "warning" | "danger" | "offline";
   lastUpdated: string;
   /** Mise en page plus dense (vue détail capteur) */
   compact?: boolean;
@@ -28,6 +28,7 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
   const getStatusColor = () => {
     switch (status) {
       case "good": return "bg-green-500/10 text-green-600 border-green-200 dark:border-green-900/30";
+      case "medium": return "bg-yellow-500/10 text-yellow-600 border-yellow-200 dark:border-yellow-900/30";
       case "warning": return "bg-orange-500/10 text-orange-600 border-orange-200 dark:border-orange-900/30";
       case "danger": return "bg-red-500/10 text-red-600 border-red-200 dark:border-red-900/30";
       case "offline": return "bg-slate-500/10 text-slate-600 border-slate-200 dark:border-slate-700/40";
@@ -60,6 +61,8 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
             <span className="text-xs font-bold">
               {status === "good"
                 ? "Optimal"
+                : status === "medium"
+                  ? "Moyen"
                 : status === "warning"
                   ? "Alerte"
                   : status === "danger"
@@ -90,6 +93,8 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
           <span className="text-xs font-semibold">
             {status === "good"
               ? "Optimal"
+              : status === "medium"
+                ? "Moyen"
               : status === "warning"
                 ? "Alerte"
                 : status === "danger"
