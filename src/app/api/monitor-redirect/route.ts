@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchMemberByAuthId } from "@/src/lib/memberAccess";
@@ -11,12 +10,6 @@ export const runtime = "nodejs";
 function monitorBase(): string {
   const raw = process.env.NEXT_PUBLIC_MONITOR_URL ?? DEFAULT_MONITOR_BASE;
   return raw.replace(/\/$/, "");
-}
-
-function signMonitorPayload(payload: { m: "admin"; school_id: string; exp: number }, secret: string) {
-  const d = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const s = createHmac("sha256", secret).update(d).digest("base64url");
-  return { d, s };
 }
 
 export async function GET(request: NextRequest) {
@@ -54,24 +47,6 @@ export async function GET(request: NextRequest) {
 
   if (!member || !canUseMonitor(member.appRole) || !canAccessFablab(member.appRole, member.fablab_ref, schoolId)) {
     return NextResponse.redirect(loginUrl);
-  }
-
-  if (member.appRole === "admin") {
-    const secret = process.env.OXALYS_SSO_SHARED_SECRET;
-    if (!secret) {
-      console.error("[monitor-redirect] OXALYS_SSO_SHARED_SECRET is required");
-      return NextResponse.redirect(`${monitorBase()}/connexion?error=sso_config`);
-    }
-
-    const { d, s } = signMonitorPayload({
-      m: "admin",
-      school_id: schoolId,
-      exp: Math.floor(Date.now() / 1000) + 60,
-    }, secret);
-    const dest = new URL(`${monitorBase()}/api/auth/teach-sso`);
-    dest.searchParams.set("d", d);
-    dest.searchParams.set("s", s);
-    return NextResponse.redirect(dest);
   }
 
   if (!userEmail) {
