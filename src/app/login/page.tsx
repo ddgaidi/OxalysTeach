@@ -95,7 +95,10 @@ export default function LoginPage() {
     });
 
     if (!response.ok) {
-      if (response.status === 403) {
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      if (payload?.error === "not_staff") {
+        setError("Ce compte n'a pas acces a Oxalys Teach.");
+      } else if (response.status === 403) {
         setError(
           `Ce compte n'est pas rattaché au fablab « ${selectedSchool.name} ».`,
         );

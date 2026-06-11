@@ -30,12 +30,14 @@ import {
   CheckCircle,
   Eye,
   EyeOff,
+  ShieldCheck,
 } from "lucide-react";
 import { SensorCard } from "@/src/components/dashboard/sensor-card";
 import { getClientCookie } from "@/src/lib/clientCookie";
 import {
   fetchFablabs,
   getStatusColor,
+  getStatusPalette,
   AirStatus,
   School,
   SensorData,
@@ -587,6 +589,26 @@ export default function DashboardPage() {
 
     if (newItems.length === 0) return;
 
+    const average = (() => {
+      const values = currentSchool.sensors
+        .map((sensor) => sensor.airQualite)
+        .filter((value): value is number => value != null && Number.isFinite(value));
+      return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+    })();
+
+    if (prev.air !== airStatus) {
+      fetch("/api/notifications/air-quality", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fablabId: currentSchool.id,
+          from: prev.air,
+          to: airStatus,
+          average,
+        }),
+      }).catch(console.error);
+    }
+
     setNotifications((prevList) => {
       const next = [...newItems, ...prevList].slice(0, NOTIF_MAX);
       saveDashboardNotifications(currentSchool.id, next);
@@ -643,6 +665,7 @@ export default function DashboardPage() {
   };
 
   const statusColors = getStatusColor(airStatus);
+  const statusPalette = getStatusPalette(airStatus);
 
   const avgAir = useMemo(() => {
     const list = displaySensors.map((s) => s.airQualite).filter((v): v is number => v != null && Number.isFinite(v));
@@ -820,7 +843,14 @@ export default function DashboardPage() {
     : { backgroundColor: "#ffffff", border: "1px solid rgba(0,0,0,0.10)", borderRadius: "12px", fontSize: "12px", color: "#1e293b" };
 
   return (
-    <div className="flex min-h-screen bg-slate-100 dark:bg-[#05050f] overflow-x-hidden text-slate-900 dark:text-slate-100 transition-colors duration-300">
+    <div
+      className="flex min-h-screen bg-slate-100 dark:bg-[#05050f] overflow-x-hidden text-slate-900 dark:text-slate-100 transition-colors duration-300"
+      style={{
+        ["--status-color" as string]: statusPalette.color,
+        ["--status-soft" as string]: statusPalette.soft,
+        ["--status-gradient" as string]: statusPalette.gradient,
+      }}
+    >
       {/* Background orbs — dark only */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden z-0 opacity-0 dark:opacity-100">
         <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-orange-600/10 blur-[120px] animate-float" />
@@ -863,13 +893,14 @@ export default function DashboardPage() {
               {activeTab === id && (
                 <motion.div
                   layoutId="sidebar-active"
-                  className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-red-500/10 border border-orange-500/20 rounded-xl"
+                  className="absolute inset-0 rounded-xl"
+                  style={{ background: statusPalette.soft, border: `1px solid ${statusPalette.color}33` }}
                 />
               )}
-              <Icon size={16} className={`relative shrink-0 ${activeTab === id ? "text-orange-400" : ""}`} />
+              <Icon size={16} className="relative shrink-0" style={{ color: activeTab === id ? statusPalette.color : undefined }} />
               <span className="relative">{label}</span>
               {activeTab === id && (
-                <div className="absolute right-3 h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse" />
+                <div className="absolute right-3 h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: statusPalette.color }} />
               )}
             </button>
           ))}
@@ -887,7 +918,8 @@ export default function DashboardPage() {
                 }
               }}
               disabled={savingLayout}
-              className="flex items-center gap-1 text-[9px] font-bold text-orange-500/70 hover:text-orange-400 transition-colors disabled:opacity-40"
+              className="flex items-center gap-1 text-[9px] font-bold transition-colors disabled:opacity-40"
+              style={{ color: statusPalette.color }}
             >
               <Settings2 size={9} />
               {savingLayout ? "…" : isEditingSensors ? "Enregistrer" : "Modifier"}
@@ -919,9 +951,10 @@ export default function DashboardPage() {
                     onClick={() => { setActiveTab("sensor-detail"); setSelectedSensorId(sensor.id); }}
                     className={`group w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all text-xs relative ${
                       activeTab === "sensor-detail" && selectedSensorId === sensor.id
-                        ? "text-orange-400 bg-orange-500/10 border border-orange-500/15"
+                        ? "border"
                         : "text-slate-500 dark:text-white/35 hover:text-slate-700 dark:hover:text-white/60 hover:bg-slate-100 dark:hover:bg-white/4"
                     }`}
+                    style={activeTab === "sensor-detail" && selectedSensorId === sensor.id ? { color: statusPalette.color, background: statusPalette.soft, borderColor: `${statusPalette.color}26` } : undefined}
                   >
                     <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                       sensor.status === "good"
@@ -943,6 +976,13 @@ export default function DashboardPage() {
           </div>
 
           <p className="text-[9px] uppercase font-bold text-slate-400 dark:text-white/20 px-3 pt-5 pb-1 tracking-widest">Navigation</p>
+          <Link
+            href="/certifications"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-500 dark:text-white/40 hover:text-slate-700 dark:hover:text-white/70 hover:bg-slate-100 dark:hover:bg-white/5 transition-all"
+          >
+            <ShieldCheck size={16} />
+            Certifications eleves
+          </Link>
           <Link
             href="/"
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-500 dark:text-white/40 hover:text-slate-700 dark:hover:text-white/70 hover:bg-slate-100 dark:hover:bg-white/5 transition-all"

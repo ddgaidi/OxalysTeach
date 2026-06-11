@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { fetchMemberByAuthId } from "@/src/lib/memberAccess";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const userId = request.cookies.get("user_id")?.value?.trim();
-  const userRole = request.cookies.get("user_role")?.value;
 
-  if (userRole !== "technician" || !userId) {
+  if (!userId) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
   }
 
@@ -16,14 +16,18 @@ export async function GET(request: NextRequest) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const supabase = createClient(supabaseUrl, serviceKey ?? anonKey);
 
-  const { data, error } = await supabase
-    .from("technicien")
-    .select("id, prenom, nom")
-    .eq("id", userId)
-    .maybeSingle();
+  const member = await fetchMemberByAuthId(supabase, userId).catch((error) => {
+    console.error("[technicien/me] membre query error:", error);
+    return null;
+  });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (member?.appRole !== "technician") {
+    return NextResponse.json({ error: "Non autorisÃ©" }, { status: 403 });
+  }
 
-  return NextResponse.json(data);
+  return NextResponse.json({
+    id: member.id,
+    prenom: member.prenom,
+    nom: member.nom,
+  });
 }

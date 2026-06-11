@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { fetchRequestMember, memberCanUseFablab } from "@/src/lib/memberAccess";
 
 type Body = {
   fablabId?: string;
@@ -28,6 +29,15 @@ export async function POST(req: NextRequest) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const supabase = createClient(supabaseUrl, serviceKey ?? anonKey);
+
+  const auth = await fetchRequestMember(supabase, req).catch((error) => {
+    console.error("[stations/layout] membre query error:", error);
+    return null;
+  });
+
+  if (!auth || !memberCanUseFablab(auth.member, fablabId)) {
+    return NextResponse.json({ error: "Non autorisÃ©" }, { status: 403 });
+  }
 
   const tempBase = 1_000_000;
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { isTechnicienInFablab } from "@/src/lib/technicienAccess";
+import { fetchMemberByAuthId } from "@/src/lib/memberAccess";
+import { canAccessFablab, canUseTeach } from "@/src/lib/roles";
 
 type LoginPayload = {
   username?: string;
@@ -18,6 +19,7 @@ function setCookies(
     userName,
     userRole,
     userId,
+    memberId,
     userEmail,
   }: {
     token: string;
@@ -26,6 +28,7 @@ function setCookies(
     userName: string;
     userRole: string;
     userId?: string;
+    memberId?: string;
     userEmail?: string;
   },
 ) {
@@ -42,6 +45,7 @@ function setCookies(
   response.cookies.set("user_name", userName, { ...base, httpOnly: false });
   response.cookies.set("user_role", userRole, { ...base, httpOnly: false });
   if (userId) response.cookies.set("user_id", userId, { ...base, httpOnly: false });
+  if (memberId) response.cookies.set("member_id", memberId, { ...base, httpOnly: false });
   if (userEmail) response.cookies.set("user_email", userEmail, { ...base, httpOnly: false });
 }
 
@@ -72,44 +76,35 @@ export async function POST(request: Request) {
 
     const authUserId = authData.user.id;
 
-    // Vérification dans la table technicien :
-    // le technicien doit avoir le même UUID que son compte Supabase Auth
     const supabaseService = createClient(supabaseUrl, serviceKey ?? anonKey);
-    const { data: techRow, error: techError } = await supabaseService
-      .from("technicien")
-      .select("id, prenom, nom")
-      .eq("id", authUserId)
-      .maybeSingle();
 
-    if (techError) {
-      console.error("[login] technicien query error:", techError.message);
-      return NextResponse.json({ ok: false }, { status: 401 });
+    const member = await fetchMemberByAuthId(supabaseService, authUserId);
+    if (!member) {
+      console.error("[login] User authenticated but not found in membre:", authUserId);
+      return NextResponse.json({ ok: false, error: "not_staff" }, { status: 401 });
     }
 
-    if (!techRow) {
-      // Compte Supabase valide mais pas dans la table technicien
-      console.error("[login] User authenticated but not found in technicien table:", authUserId);
-      return NextResponse.json({ ok: false, error: "not_technician" }, { status: 401 });
+    if (!canUseTeach(member.appRole)) {
+      return NextResponse.json({ ok: false, error: "not_staff" }, { status: 403 });
     }
 
-    const allowed = await isTechnicienInFablab(supabaseService, authUserId, schoolId);
-    if (!allowed) {
+    if (!canAccessFablab(member.appRole, member.fablab_ref, schoolId)) {
       return NextResponse.json(
         { ok: false, error: "school_mismatch" },
         { status: 403 },
       );
     }
 
-    // Connexion technicien valide
-    const fullName = `${techRow.prenom} ${techRow.nom}`;
-    const response = NextResponse.json({ ok: true, role: "technician" });
+    const fullName = `${member.prenom ?? ""} ${member.nom ?? ""}`.trim() || authData.user.email || username;
+    const response = NextResponse.json({ ok: true, role: member.appRole });
     setCookies(response, {
-      token: "technician-session",
+      token: "staff-session",
       schoolId,
       schoolName: schoolName ?? "",
       userName: fullName,
-      userRole: "technician",
+      userRole: member.appRole,
       userId: authUserId,
+      memberId: member.id,
       userEmail: authData.user.email ?? username,
     });
     return response;

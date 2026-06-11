@@ -97,9 +97,10 @@ export interface Technician {
 
 export async function fetchTeachers(fablabId: string): Promise<Teacher[]> {
   const { data, error } = await supabase
-    .from("professeur")
+    .from("personnel_fablabs")
     .select("id, nom, prenom, matiere, email")
     .eq("fablab_id", fablabId)
+    .eq("role", "professeur")
     .order("nom", { ascending: true });
 
   if (error) {
@@ -111,24 +112,11 @@ export async function fetchTeachers(fablabId: string): Promise<Teacher[]> {
 }
 
 export async function fetchTechnicians(fablabId: string): Promise<Technician[]> {
-  const { data: links, error: lErr } = await supabase
-    .from("technicien_fablabs")
-    .select("technicien_id")
-    .eq("fablab_id", fablabId);
-
-  if (lErr) {
-    console.error("Error fetching technicien_fablabs:", lErr);
-    return [];
-  }
-  if (!links?.length) {
-    return [];
-  }
-
-  const ids = links.map((l) => l.technicien_id as string);
   const { data, error } = await supabase
-    .from("technicien")
+    .from("personnel_fablabs")
     .select("id, nom, prenom")
-    .in("id", ids)
+    .eq("fablab_id", fablabId)
+    .eq("role", "technicien")
     .order("nom", { ascending: true });
 
   if (error) {
@@ -359,6 +347,21 @@ export function getStatusColor(status: AirStatus) {
         dot: "bg-slate-500",
         lightText: "text-slate-700 dark:text-slate-100",
       };
+  }
+}
+
+export function getStatusPalette(status: AirStatus) {
+  switch (status) {
+    case "Optimal":
+      return { color: "#22c55e", soft: "rgba(34,197,94,0.14)", gradient: "linear-gradient(135deg,#22c55e,#16a34a)" };
+    case "Moyen":
+      return { color: "#eab308", soft: "rgba(234,179,8,0.15)", gradient: "linear-gradient(135deg,#eab308,#ca8a04)" };
+    case "Alerte":
+      return { color: "#f97316", soft: "rgba(249,115,22,0.15)", gradient: "linear-gradient(135deg,#f97316,#ea580c)" };
+    case "Danger":
+      return { color: "#ef4444", soft: "rgba(239,68,68,0.16)", gradient: "linear-gradient(135deg,#ef4444,#dc2626)" };
+    case "Hors service":
+      return { color: "#64748b", soft: "rgba(100,116,139,0.15)", gradient: "linear-gradient(135deg,#64748b,#475569)" };
   }
 }
 

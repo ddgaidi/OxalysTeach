@@ -1,6 +1,8 @@
+import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { isTechnicienInFablab } from "@/src/lib/technicienAccess";
+import { fetchMemberByAuthId } from "@/src/lib/memberAccess";
+import { canAccessFablab, canUseMonitor } from "@/src/lib/roles";
 
 const DEFAULT_MONITOR_BASE = "https://oxalys-monitor.vercel.app";
 
@@ -11,9 +13,14 @@ function monitorBase(): string {
   return raw.replace(/\/$/, "");
 }
 
+function signMonitorPayload(payload: { m: "admin"; school_id: string; exp: number }, secret: string) {
+  const d = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const s = createHmac("sha256", secret).update(d).digest("base64url");
+  return { d, s };
+}
+
 export async function GET(request: NextRequest) {
   const authToken = request.cookies.get("auth_token")?.value;
-  const role = request.cookies.get("user_role")?.value;
   const schoolId = request.cookies.get("school_id")?.value;
   let userEmail = request.cookies.get("user_email")?.value?.trim();
   const userId = request.cookies.get("user_id")?.value;
@@ -25,7 +32,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (role !== "technician" || !userId) {
+  if (!userId) {
     return NextResponse.redirect(loginUrl);
   }
 
@@ -33,26 +40,38 @@ export async function GET(request: NextRequest) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
     console.error("[monitor-redirect] SUPABASE_SERVICE_ROLE_KEY is required");
-    return NextResponse.redirect(`${monitorBase()}/login`);
+    return NextResponse.redirect(`${monitorBase()}/connexion`);
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const { data: techRow, error: techError } = await supabaseAdmin
-    .from("technicien")
-    .select("id")
-    .eq("id", userId)
-    .maybeSingle();
+  const member = await fetchMemberByAuthId(supabaseAdmin, userId).catch((error) => {
+    console.error("[monitor-redirect] membre query failed:", error);
+    return null;
+  });
 
-  if (techError || !techRow) {
+  if (!member || !canUseMonitor(member.appRole) || !canAccessFablab(member.appRole, member.fablab_ref, schoolId)) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const allowed = await isTechnicienInFablab(supabaseAdmin, userId, schoolId);
-  if (!allowed) {
-    return NextResponse.redirect(loginUrl);
+  if (member.appRole === "admin") {
+    const secret = process.env.OXALYS_SSO_SHARED_SECRET;
+    if (!secret) {
+      console.error("[monitor-redirect] OXALYS_SSO_SHARED_SECRET is required");
+      return NextResponse.redirect(`${monitorBase()}/connexion?error=sso_config`);
+    }
+
+    const { d, s } = signMonitorPayload({
+      m: "admin",
+      school_id: schoolId,
+      exp: Math.floor(Date.now() / 1000) + 60,
+    }, secret);
+    const dest = new URL(`${monitorBase()}/api/auth/teach-sso`);
+    dest.searchParams.set("d", d);
+    dest.searchParams.set("s", s);
+    return NextResponse.redirect(dest);
   }
 
   if (!userEmail) {
@@ -70,7 +89,7 @@ export async function GET(request: NextRequest) {
 
   if (linkError || !linkData?.properties?.hashed_token) {
     console.error("[monitor-redirect] generateLink failed:", linkError?.message);
-    return NextResponse.redirect(`${monitorBase()}/login?error=handoff`);
+    return NextResponse.redirect(`${monitorBase()}/connexion?error=handoff`);
   }
 
   const dest = new URL(`${monitorBase()}/auth/monitor-callback`);

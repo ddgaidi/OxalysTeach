@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Moon, Sun, Monitor, GraduationCap, LogIn, LayoutDashboard, Home, Users } from "lucide-react";
+import { Moon, Sun, Monitor, GraduationCap, LogIn, LayoutDashboard, Home, Users, ShieldCheck } from "lucide-react";
 import { useTheme } from "@/src/components/providers/theme-provider";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -27,6 +27,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/", label: "Accueil", icon: Home },
     { href: "#teachers", label: "Équipe", icon: Users },
+    { href: "/certifications", label: "Certifications", icon: ShieldCheck },
     { href: "/api/monitor-redirect", label: "Moniteur", icon: Monitor, external: true },
   ];
 

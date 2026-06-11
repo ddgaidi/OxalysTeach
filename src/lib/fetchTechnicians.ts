@@ -9,6 +9,15 @@ export interface TechnicianRecord {
   created_at: string;
 }
 
+type PersonnelTechnicianRow = {
+  id: string;
+  prenom: string;
+  nom: string;
+  image: string | null;
+  fablab_id: string;
+  created_at: string;
+};
+
 function buildSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,34 +30,24 @@ export async function fetchTechniciansByFablabId(
 ): Promise<TechnicianRecord[]> {
   const supabase = buildSupabaseClient();
 
-  const { data: links, error: linkErr } = await supabase
-    .from("technicien_fablabs")
-    .select("technicien_id")
-    .eq("fablab_id", fablabId);
-
-  if (linkErr) {
-    console.error("[fetchTechnicians] technicien_fablabs:", linkErr);
-    return [];
-  }
-  if (!links?.length) {
-    return [];
-  }
-
-  const ids = [...new Set(links.map((l) => l.technicien_id as string))];
-
-  const { data, error } = await supabase
-    .from("technicien")
-    .select("id, prenom, nom, image, created_at")
-    .in("id", ids)
+  const { data: technicians, error } = await supabase
+    .from("personnel_fablabs")
+    .select("id, prenom, nom, image, created_at, fablab_id")
+    .eq("fablab_id", fablabId)
+    .eq("role", "technicien")
     .order("nom", { ascending: true });
 
   if (error) {
-    console.error("[fetchTechnicians] technicien:", error);
+    console.error("[fetchTechnicians] personnel_fablabs:", error);
     return [];
   }
 
-  return (data ?? []).map((row) => ({
-    ...row,
+  return ((technicians ?? []) as PersonnelTechnicianRow[]).map((row) => ({
+    id: row.id,
+    prenom: row.prenom,
+    nom: row.nom,
+    image: row.image ?? null,
     fablab_id: fablabId,
+    created_at: row.created_at,
   })) as TechnicianRecord[];
 }

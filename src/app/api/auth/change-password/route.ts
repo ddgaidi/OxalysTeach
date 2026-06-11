@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { fetchMemberByAuthId } from "@/src/lib/memberAccess";
 
 export async function POST(request: NextRequest) {
-  const userRole = request.cookies.get("user_role")?.value;
   const userId = request.cookies.get("user_id")?.value;
   const userEmail = request.cookies.get("user_email")?.value;
 
-  if (userRole !== "technician" || !userId || !userEmail) {
+  if (!userId || !userEmail) {
     return NextResponse.json(
       { error: "Disponible uniquement pour les comptes technicien." },
       { status: 403 },
@@ -29,6 +29,19 @@ export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseAdmin = createClient(supabaseUrl, serviceKey ?? anonKey);
+
+  const member = await fetchMemberByAuthId(supabaseAdmin, userId).catch((error) => {
+    console.error("[change-password] membre query error:", error);
+    return null;
+  });
+
+  if (member?.appRole !== "technician") {
+    return NextResponse.json(
+      { error: "Disponible uniquement pour les comptes technicien." },
+      { status: 403 },
+    );
+  }
 
   // Vérifie le mot de passe actuel
   const supabaseAnon = createClient(supabaseUrl, anonKey);
@@ -42,7 +55,6 @@ export async function POST(request: NextRequest) {
   }
 
   // Met à jour le mot de passe via la clé service (admin)
-  const supabaseAdmin = createClient(supabaseUrl, serviceKey ?? anonKey);
   const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     password: newPassword,
   });
