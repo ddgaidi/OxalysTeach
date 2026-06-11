@@ -13,8 +13,24 @@ export type MemberRoleRow = {
   fablab_ref: string | null;
 };
 
+function normalizeRoleText(role: string | null | undefined): string {
+  return (role ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+function normalizeFablabReference(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
 export function normalizeMemberRole(role: string | null | undefined): MemberRole {
-  switch (role) {
+  switch (normalizeRoleText(role)) {
     case "administrateur":
     case "admin":
       return "admin";
@@ -71,5 +87,8 @@ export function canAccessFablab(
   const normalized = normalizeMemberRole(role);
   if (normalized === "admin") return true;
   if (!fablabId || !memberFablabId) return false;
-  return canUseTeach(normalized) && memberFablabId === fablabId;
+  return (
+    canUseTeach(normalized) &&
+    normalizeFablabReference(memberFablabId) === normalizeFablabReference(fablabId)
+  );
 }

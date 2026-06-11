@@ -55,6 +55,16 @@ export async function fetchRequestMember(
   return member ? { authUserId, member } : null;
 }
 
-export function memberCanUseFablab(member: AuthenticatedMember, fablabId: string) {
-  return canUseTeach(member.appRole) && canAccessFablab(member.appRole, member.fablab_ref, fablabId);
+export function memberCanUseFablab(
+  member: AuthenticatedMember,
+  fablabId: string,
+  fablabName?: string | null,
+) {
+  return (
+    canUseTeach(member.appRole) &&
+    (
+      canAccessFablab(member.appRole, member.fablab_ref, fablabId) ||
+      canAccessFablab(member.appRole, member.fablab_ref, fablabName)
+    )
+  );
 }

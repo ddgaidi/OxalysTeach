@@ -12,9 +12,19 @@ function monitorBase(): string {
   return raw.replace(/\/$/, "");
 }
 
+function decodeCookieValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const authToken = request.cookies.get("auth_token")?.value;
   const schoolId = request.cookies.get("school_id")?.value;
+  const schoolName = decodeCookieValue(request.cookies.get("school_name")?.value);
   let userEmail = request.cookies.get("user_email")?.value?.trim();
   const userId = request.cookies.get("user_id")?.value;
 
@@ -45,7 +55,14 @@ export async function GET(request: NextRequest) {
     return null;
   });
 
-  if (!member || !canUseMonitor(member.appRole) || !canAccessFablab(member.appRole, member.fablab_ref, schoolId)) {
+  const canAccessSelectedSchool =
+    member &&
+    (
+      canAccessFablab(member.appRole, member.fablab_ref, schoolId) ||
+      canAccessFablab(member.appRole, member.fablab_ref, schoolName)
+    );
+
+  if (!member || !canUseMonitor(member.appRole) || !canAccessSelectedSchool) {
     return NextResponse.redirect(loginUrl);
   }
 

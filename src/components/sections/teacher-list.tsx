@@ -254,20 +254,28 @@ export function TeacherList() {
 
   const displayedTeachers = searchTerm.trim()
     ? filteredTeachers
-    : REQUIRED_SUBJECTS.map((subject) => {
-        const key = normalizeText(subject);
-        const found = filteredTeachers.find((t) => normalizeText(t.matiere) === key);
-        if (found) return found;
-        return {
-          id: `fallback-${key}`,
-          fablab_id: "",
-          nom: "Affectation",
-          prenom: "En attente",
-          matiere: subject,
-          email: "non-assigne@oxalysteach.local",
-          created_at: "",
-        } satisfies ProfessorData;
-      });
+    : (() => {
+        const assignedTeacherIds = new Set<string>();
+        const requiredTeachers = REQUIRED_SUBJECTS.map((subject) => {
+          const key = normalizeText(subject);
+          const found = filteredTeachers.find((t) => normalizeText(t.matiere) === key);
+          if (found) {
+            assignedTeacherIds.add(found.id);
+            return found;
+          }
+          return {
+            id: `fallback-${key}`,
+            fablab_id: "",
+            nom: "Affectation",
+            prenom: "En attente",
+            matiere: subject,
+            email: "non-assigne@oxalysteach.local",
+            created_at: "",
+          } satisfies ProfessorData;
+        });
+        const extraTeachers = filteredTeachers.filter((teacher) => !assignedTeacherIds.has(teacher.id));
+        return [...requiredTeachers, ...extraTeachers];
+      })();
 
   const filteredTechnicians = technicians.filter((t) =>
     normalizeText(`${t.prenom} ${t.nom}`).includes(normalizeText(searchTerm)),
@@ -299,7 +307,7 @@ export function TeacherList() {
                 )}
               </h2>
               <p className="max-w-lg text-slate-500 dark:text-slate-400">
-                L'équipe pédagogique et technique de votre établissement, présentée en temps réel.
+                L&apos;équipe pédagogique et technique de votre établissement, présentée en temps réel.
               </p>
             </div>
 
@@ -348,7 +356,7 @@ export function TeacherList() {
               <div className="absolute inset-0 rounded-full border-2 border-orange-500/20" />
               <div className="absolute inset-0 rounded-full border-2 border-t-orange-500 animate-spin" />
             </div>
-            <p className="text-sm text-slate-500">Chargement de l'équipe...</p>
+            <p className="text-sm text-slate-500">Chargement de l&apos;équipe...</p>
           </div>
         ) : (
           <div className="space-y-16">

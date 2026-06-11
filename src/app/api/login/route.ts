@@ -88,7 +88,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "not_staff" }, { status: 403 });
     }
 
-    if (!canAccessFablab(member.appRole, member.fablab_ref, schoolId)) {
+    const canAccessSelectedSchool =
+      canAccessFablab(member.appRole, member.fablab_ref, schoolId) ||
+      canAccessFablab(member.appRole, member.fablab_ref, schoolName);
+
+    if (!canAccessSelectedSchool) {
       return NextResponse.json(
         { ok: false, error: "school_mismatch" },
         { status: 403 },

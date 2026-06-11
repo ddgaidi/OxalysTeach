@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchTechniciansByFablabId } from "@/src/lib/fetchTechnicians";
 import { createSupabaseAdminClient } from "@/src/lib/supabaseAdmin";
 import { fetchRequestMember, memberCanUseFablab } from "@/src/lib/memberAccess";
+import { fetchFablabNameById, fetchPersonnelByFablabId } from "@/src/lib/personnel";
+
+export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const fablabId = req.nextUrl.searchParams.get("fablabId");
@@ -11,16 +13,17 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
+  const fablabName = await fetchFablabNameById(supabase, fablabId);
   const auth = await fetchRequestMember(supabase, req).catch((error) => {
     console.error("[API/techniciens] membre query error:", error);
     return null;
   });
 
-  if (!auth || !memberCanUseFablab(auth.member, fablabId)) {
+  if (!auth || !memberCanUseFablab(auth.member, fablabId, fablabName)) {
     return NextResponse.json({ error: "Non autorise" }, { status: 403 });
   }
 
-  const technicians = await fetchTechniciansByFablabId(fablabId);
+  const { technicians } = await fetchPersonnelByFablabId(supabase, fablabId);
 
   return NextResponse.json({ technicians });
 }
