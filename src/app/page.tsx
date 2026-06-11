@@ -24,6 +24,7 @@ import Link from "next/link";
 import { Navbar } from "@/src/components/sections/Navbar";
 import { TeacherList } from "@/src/components/sections/teacher-list";
 
+// Cartes affichees dans la grille "fonctionnalites" de la page d'accueil.
 const bentoFeatures = [
   {
     title: "Qualité de l'air",
@@ -73,6 +74,7 @@ const bentoFeatures = [
 ];
 
 function FloatingOrb({ className, animate }: { className: string; animate: Record<string, number[]> }) {
+  // Halo anime utilise uniquement en theme sombre pour donner de la profondeur.
   return (
     <motion.div
       animate={animate}
@@ -89,17 +91,20 @@ function BentoCard({
   feature: (typeof bentoFeatures)[0];
   index: number;
 }) {
+  // Carte interactive : le radial-gradient suit la souris.
   const ref = useRef<HTMLDivElement>(null);
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Convertit la position souris en coordonnees relatives a la carte.
     if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();
     mouseX.set(e.clientX - rect.left);
     mouseY.set(e.clientY - rect.top);
   };
 
+  // Fond lumineux reactif derive des motion values.
   const background = useTransform(
     [mouseX, mouseY],
     ([x, y]) =>
@@ -135,26 +140,31 @@ function BentoCard({
 const titleWords = ["Oxalys", "Teach"];
 
 export default function Home() {
+  // Etat personnalise a partir du fablab connecte.
   const [schoolName, setSchoolName] = useState("");
   const [airStatus, setAirStatus] = useState<AirStatus>("Optimal");
   const [avgAirIndex, setAvgAirIndex] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // Attend le montage client avant de lancer les animations d'entree.
     setMounted(true);
     async function loadData() {
+      // Le nom du fablab est stocke en cookie par la route `/api/login`.
       const name = document.cookie
         .split("; ")
         .find((row) => row.startsWith("school_name="))
         ?.split("=")[1];
 
       if (name) {
+        // Charge les donnees live du fablab pour afficher son statut d'air.
         const decodedName = decodeURIComponent(name);
         setSchoolName(decodedName);
         const allSchools = await fetchFablabs();
         const school = allSchools.find((s) => s.name === decodedName);
         if (school) {
           setAirStatus(school.status);
+          // Moyenne locale de l'indice air, sans compter les capteurs hors service.
           const vals = school.sensors.map((s) => s.airQualite).filter((v): v is number => v != null && Number.isFinite(v));
           setAvgAirIndex(vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
         }
@@ -163,14 +173,17 @@ export default function Home() {
     loadData();
   }, []);
 
+  // Couleurs et libelle derives du statut global du fablab.
   const statusColors = getStatusColor(airStatus);
   const statusLabel = getStatusLabel(airStatus);
 
+  // Variants Framer Motion pour orchestrer l'arrivee du hero.
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.12, delayChildren: 0.2 } },
   };
 
+  // Animation commune aux blocs du hero.
   const itemVariants = {
     hidden: { opacity: 0, y: 30 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] } },
@@ -199,6 +212,7 @@ export default function Home() {
       <Navbar />
 
       <main className="relative mx-auto w-full max-w-7xl px-6 pt-32 pb-24 lg:px-12">
+        {/* Section hero personnalisee selon le fablab connecte. */}
         {/* Hero */}
         <motion.section
           variants={containerVariants}
@@ -207,6 +221,7 @@ export default function Home() {
           className="grid items-center gap-16 lg:grid-cols-[1.15fr_0.85fr]"
         >
           <div className="space-y-8">
+            {/* Badge d'etablissement ou badge generique. */}
             {/* Badge */}
             <motion.div variants={itemVariants}>
               <AnimatePresence>
@@ -231,6 +246,7 @@ export default function Home() {
 
             {/* Title */}
             <motion.div variants={itemVariants} className="space-y-2">
+              {/* Deux logos pour conserver un bon contraste en clair/sombre. */}
               <div className="flex h-16 w-full max-w-[400px]">
                 <img
                   src="/oxalys-teach.png"
@@ -258,6 +274,7 @@ export default function Home() {
 
             {/* CTAs */}
             <motion.div variants={itemVariants} className="flex flex-wrap items-center gap-4">
+              {/* Action principale vers l'espace de supervision. */}
               <Link
                 href="/dashboard"
                 className="group relative inline-flex items-center gap-2.5 overflow-hidden rounded-full px-8 py-4 text-sm font-bold text-white shadow-xl shadow-orange-500/20"
@@ -282,6 +299,7 @@ export default function Home() {
             variants={itemVariants}
             className="relative"
           >
+            {/* Carte synthetique de qualite d'air du fablab courant. */}
             <div className="absolute -inset-1 rounded-3xl bg-gradient-to-br from-orange-500/20 via-transparent to-red-600/20 blur-xl opacity-60" />
             <div className="relative rounded-3xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 backdrop-blur-xl p-6 shadow-lg dark:shadow-[0_30px_60px_rgba(0,0,0,0.4)]">
               {/* Status top */}
@@ -370,6 +388,7 @@ export default function Home() {
           </motion.div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
+            {/* Rend une carte par fonctionnalite declaree plus haut. */}
             {bentoFeatures.map((feature, i) => (
               <BentoCard key={feature.title} feature={feature} index={i} />
             ))}

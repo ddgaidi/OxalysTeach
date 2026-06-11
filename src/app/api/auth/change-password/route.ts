@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { fetchMemberByAuthId } from "@/src/lib/memberAccess";
 
 export async function POST(request: NextRequest) {
+  // Identite de l'utilisateur connecte, lue depuis les cookies de session.
   const userId = request.cookies.get("user_id")?.value;
   const userEmail = request.cookies.get("user_email")?.value;
 
@@ -13,6 +14,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Le formulaire envoie l'ancien mot de passe pour re-authentifier avant changement.
   const { currentPassword, newPassword } = await request.json();
 
   if (!currentPassword || !newPassword) {
@@ -29,8 +31,10 @@ export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Client admin pour lire le membre et mettre a jour le mot de passe.
   const supabaseAdmin = createClient(supabaseUrl, serviceKey ?? anonKey);
 
+  // Seuls les techniciens peuvent changer leur mot de passe depuis ce tableau de bord.
   const member = await fetchMemberByAuthId(supabaseAdmin, userId).catch((error) => {
     console.error("[change-password] membre query error:", error);
     return null;
@@ -44,6 +48,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Vérifie le mot de passe actuel
+  // Re-authentification avec le client anon, comme une connexion classique.
   const supabaseAnon = createClient(supabaseUrl, anonKey);
   const { error: authError } = await supabaseAnon.auth.signInWithPassword({
     email: userEmail,
@@ -55,6 +60,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Met à jour le mot de passe via la clé service (admin)
+  // Mise a jour reelle via l'API admin Supabase.
   const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     password: newPassword,
   });

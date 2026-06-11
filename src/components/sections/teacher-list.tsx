@@ -5,6 +5,7 @@ import { supabase } from "@/src/lib/supabase";
 import { motion, useMotionValue, useTransform, AnimatePresence } from "framer-motion";
 import { User, Mail, BookOpen, Search, Wrench, ShieldCheck, X } from "lucide-react";
 
+// Donnees professeur renvoyees par l'API personnel.
 interface ProfessorData {
   id: string;
   fablab_id: string;
@@ -15,6 +16,7 @@ interface ProfessorData {
   created_at: string;
 }
 
+// Donnees technicien renvoyees par l'API techniciens.
 interface TechnicianData {
   id: string;
   prenom: string;
@@ -23,9 +25,11 @@ interface TechnicianData {
   created_at: string;
 }
 
+// Normalise les recherches en ignorant accents et casse.
 const normalizeText = (value: string) =>
   value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
+// Matieres que l'interface affiche toujours, meme si aucun professeur n'est encore assigne.
 const REQUIRED_SUBJECTS = [
   "SVT",
   "Mathématiques",
@@ -34,6 +38,7 @@ const REQUIRED_SUBJECTS = [
   "Philosophie",
 ];
 
+// Palette visuelle associee a chaque matiere principale.
 const SUBJECT_COLORS: Record<string, { gradient: string; border: string; icon: string; dot: string }> = {
   SVT:              { gradient: "from-emerald-500/15 to-teal-500/5",   border: "border-emerald-500/20",  icon: "bg-emerald-500/15 text-emerald-400",  dot: "bg-emerald-500" },
   Mathématiques:    { gradient: "from-blue-500/15 to-indigo-500/5",    border: "border-blue-500/20",     icon: "bg-blue-500/15 text-blue-400",        dot: "bg-blue-500" },
@@ -43,6 +48,7 @@ const SUBJECT_COLORS: Record<string, { gradient: string; border: string; icon: s
 };
 
 function getSubjectColors(matiere: string) {
+  // Fallback neutre pour les matieres non referencees dans la palette.
   return SUBJECT_COLORS[matiere] ?? {
     gradient: "from-slate-500/10 to-slate-400/5",
     border: "border-white/10",
@@ -52,14 +58,17 @@ function getSubjectColors(matiere: string) {
 }
 
 function getInitials(prenom: string, nom: string) {
+  // Initiales utilisees comme avatar texte.
   return `${prenom[0] ?? ""}${nom[0] ?? ""}`.toUpperCase();
 }
 
 function TeacherCard({ teacher, index }: { teacher: ProfessorData; index: number }) {
+  // Effet de lumiere qui suit la souris sur chaque carte professeur.
   const ref = useRef<HTMLDivElement>(null);
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const colors = getSubjectColors(teacher.matiere);
+  // Les cartes fallback representent une matiere sans professeur affecte.
   const isPending = teacher.id.startsWith("fallback-");
 
   const background = useTransform(
@@ -136,6 +145,7 @@ function TeacherCard({ teacher, index }: { teacher: ProfessorData; index: number
 }
 
 function TechCard({ tech, index }: { tech: TechnicianData; index: number }) {
+  // Meme interaction hover que les professeurs, avec une palette technique cyan.
   const ref = useRef<HTMLDivElement>(null);
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
@@ -188,6 +198,7 @@ function TechCard({ tech, index }: { tech: TechnicianData; index: number }) {
 }
 
 export function TeacherList() {
+  // Donnees equipe + recherche locale affichees sur la home.
   const [teachers, setTeachers] = useState<ProfessorData[]>([]);
   const [technicians, setTechnicians] = useState<TechnicianData[]>([]);
   const [schoolName, setSchoolName] = useState("");
@@ -197,6 +208,7 @@ export function TeacherList() {
   useEffect(() => {
     async function fetchData() {
       try {
+        // Le fablab courant vient des cookies poses par la connexion.
         const cookies = document.cookie.split("; ");
         const rawName = cookies.find((r) => r.startsWith("school_name="))?.split("=")[1];
         const rawId   = cookies.find((r) => r.startsWith("school_id="))?.split("=")[1];
@@ -221,6 +233,7 @@ export function TeacherList() {
 
         const encodedId = encodeURIComponent(fablabId);
 
+        // Charge professeurs et techniciens en parallele pour accelerer la section.
         const [personnelRes, techniciensRes] = await Promise.all([
           fetch(`/api/personnel?fablabId=${encodedId}`),
           fetch(`/api/techniciens?fablabId=${encodedId}`),
@@ -246,12 +259,14 @@ export function TeacherList() {
     fetchData();
   }, []);
 
+  // Filtre texte sur nom/prenom/matiere.
   const filteredTeachers = teachers.filter(
     (t) =>
       normalizeText(`${t.prenom} ${t.nom}`).includes(normalizeText(searchTerm)) ||
       normalizeText(t.matiere).includes(normalizeText(searchTerm)),
   );
 
+  // Sans recherche, on affiche les matieres obligatoires avec une carte "en attente" si besoin.
   const displayedTeachers = searchTerm.trim()
     ? filteredTeachers
     : (() => {
@@ -277,6 +292,7 @@ export function TeacherList() {
         return [...requiredTeachers, ...extraTeachers];
       })();
 
+  // Les techniciens sont filtres uniquement par identite.
   const filteredTechnicians = technicians.filter((t) =>
     normalizeText(`${t.prenom} ${t.nom}`).includes(normalizeText(searchTerm)),
   );

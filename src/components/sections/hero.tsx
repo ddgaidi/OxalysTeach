@@ -13,6 +13,7 @@ export function Hero() {
       
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col items-center text-center">
+          {/* Badge d'annonce anime au-dessus du titre. */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -36,6 +37,7 @@ export function Hero() {
             </span>
           </motion.div>
 
+          {/* Titre marketing principal. */}
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -48,6 +50,7 @@ export function Hero() {
             </span>
           </motion.h1>
 
+          {/* Description courte de la plateforme. */}
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -57,6 +60,7 @@ export function Hero() {
             Gérez vos cours, vos élèves et supervisez votre établissement en temps réel avec nos capteurs connectés. Simple, rapide et élégant.
           </motion.p>
 
+          {/* Boutons d'acces vers login et demo dashboard. */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -82,6 +86,7 @@ export function Hero() {
             className="mt-20 grid w-full grid-cols-1 gap-8 sm:grid-cols-4"
           >
             {[
+              // Donnees locales affichees dans la grille de statistiques.
               { icon: BookOpen, label: "Ressources", value: "500+", color: "orange" },
               { icon: Users, label: "Professeurs", value: "1.2k", color: "red" },
               { icon: Cpu, label: "Capteurs Air", value: "Actif", color: "orange" },

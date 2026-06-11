@@ -11,6 +11,7 @@ export interface TechnicianRecord {
 }
 
 function buildSupabaseClient() {
+  // Preferer la cle service en route serveur, avec fallback anon pour garder les lectures possibles.
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -20,6 +21,7 @@ function buildSupabaseClient() {
 export async function fetchTechniciansByFablabId(
   fablabId: string,
 ): Promise<TechnicianRecord[]> {
+  // Reutilise la fusion centrale du personnel puis ne renvoie que les champs utiles aux techniciens.
   const supabase = buildSupabaseClient();
   const { technicians } = await fetchPersonnelByFablabId(supabase, fablabId);
 

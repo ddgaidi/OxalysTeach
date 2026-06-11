@@ -69,6 +69,7 @@ import {
   ReferenceLine,
 } from "recharts";
 
+// Couleur de courbe selon le niveau d'indice air.
 function strokeForAirIndex(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "#94a3b8";
   if (v >= AIR_INDEX_DANGER_MIN) return "#ef4444";
@@ -138,6 +139,7 @@ const TEN_MIN_MAX_POINTS = 288;
 const liveStorageKey = (fablabId: string) => `oxalys_air_live_v1_${fablabId}`;
 const tenMinStorageKey = (fablabId: string) => `oxalys_air_10m_v1_${fablabId}`;
 
+// Point brut de l'historique temps reel, indexe par id de capteur.
 type AirHistoryRow = {
   ts: number;
   date: string;
@@ -145,6 +147,7 @@ type AirHistoryRow = {
   values: Record<string, number>;
 };
 
+// Point agrege par tranche de 10 minutes.
 type TenMinRow = {
   bucketStart: number;
   time: string;
@@ -152,12 +155,14 @@ type TenMinRow = {
 };
 
 function trimLiveHistory(rows: AirHistoryRow[], now = Date.now()): AirHistoryRow[] {
+  // Garde uniquement la fenetre live et limite le nombre de points stockes.
   const cutoff = now - LIVE_WINDOW_MS;
   const next = rows.filter((r) => typeof r.ts === "number" && r.ts >= cutoff);
   return next.slice(-LIVE_STORAGE_MAX);
 }
 
 function loadLiveHistory(fablabId: string): AirHistoryRow[] {
+  // Recharge l'historique temps reel depuis le navigateur si disponible.
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(liveStorageKey(fablabId));
@@ -171,6 +176,7 @@ function loadLiveHistory(fablabId: string): AirHistoryRow[] {
 }
 
 function saveLiveHistory(fablabId: string, rows: AirHistoryRow[]) {
+  // Persiste l'historique live localement entre deux refreshs.
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(liveStorageKey(fablabId), JSON.stringify(rows));
@@ -180,6 +186,7 @@ function saveLiveHistory(fablabId: string, rows: AirHistoryRow[]) {
 }
 
 function loadTenMinHistory(fablabId: string): TenMinRow[] {
+  // Recharge les moyennes 10 minutes conservees dans ce navigateur.
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(tenMinStorageKey(fablabId));
@@ -193,6 +200,7 @@ function loadTenMinHistory(fablabId: string): TenMinRow[] {
 }
 
 function saveTenMinHistory(fablabId: string, rows: TenMinRow[]) {
+  // Sauvegarde les donnees agregees pour retrouver le graphe apres rechargement.
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(tenMinStorageKey(fablabId), JSON.stringify(rows));
@@ -202,6 +210,7 @@ function saveTenMinHistory(fablabId: string, rows: TenMinRow[]) {
 }
 
 function formatTenMinAxisLabel(bucketStart: number): string {
+  // Affiche seulement l'heure aujourd'hui, et ajoute la date pour les jours precedents.
   const d = new Date(bucketStart * TEN_MIN_MS);
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -212,6 +221,7 @@ function formatTenMinAxisLabel(bucketStart: number): string {
 }
 
 function averagesFromSums(sums: Record<string, { sum: number; count: number }>): Record<string, number> {
+  // Convertit les sommes accumulees par capteur en moyennes exploitables par Recharts.
   const out: Record<string, number> = {};
   Object.entries(sums).forEach(([id, { sum, count }]) => {
     if (count > 0) out[id] = sum / count;
@@ -232,6 +242,7 @@ const notifStorageKey = (fablabId: string) => `oxalys_dash_notif_v1_${fablabId}`
 const NOTIF_MAX = 50;
 
 function loadDashboardNotifications(fablabId: string): DashboardNotification[] {
+  // Les notifications dashboard sont locales au fablab et au navigateur.
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(notifStorageKey(fablabId));
@@ -245,6 +256,7 @@ function loadDashboardNotifications(fablabId: string): DashboardNotification[] {
 }
 
 function saveDashboardNotifications(fablabId: string, list: DashboardNotification[]) {
+  // On limite la taille pour ne pas saturer localStorage.
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(notifStorageKey(fablabId), JSON.stringify(list.slice(0, NOTIF_MAX)));
@@ -254,6 +266,7 @@ function saveDashboardNotifications(fablabId: string, list: DashboardNotificatio
 }
 
 function airStatusLabelFr(s: AirStatus): string {
+  // Conversion explicite pour les messages de notification.
   switch (s) {
     case "Optimal":
       return "Optimal";
@@ -271,6 +284,7 @@ function airStatusLabelFr(s: AirStatus): string {
 }
 
 function notificationTypeForAirChange(from: AirStatus, to: AirStatus): DashboardNotification["type"] {
+  // Type visuel de notification selon l'evolution du niveau d'air.
   if (to === "Danger" || to === "Hors service") return "critical";
   if (to === "Optimal") return "success";
   if (to === "Moyen") return "medium";
@@ -279,6 +293,7 @@ function notificationTypeForAirChange(from: AirStatus, to: AirStatus): Dashboard
 }
 
 function newNotificationId(): string {
+  // Identifiant local suffisant pour l'affichage en liste.
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
@@ -287,12 +302,14 @@ const SESSION_AVATAR_KEY = "oxalys_session_avatar_v1";
 type SessionAvatarColors = { bg: string; fg: string };
 
 function pickSessionAvatarColors(): SessionAvatarColors {
+  // Couleur aleatoire stable uniquement pendant la session navigateur.
   const hues = [12, 32, 142, 172, 210, 252, 292, 332];
   const h = hues[Math.floor(Math.random() * hues.length)];
   return { bg: `hsl(${h} 58% 46%)`, fg: `hsl(${h} 30% 98%)` };
 }
 
 function getOrCreateSessionAvatarColors(): SessionAvatarColors {
+  // Reprend la couleur de session si elle existe, sinon en cree une.
   if (typeof window === "undefined") return { bg: "hsl(24 58% 46%)", fg: "hsl(24 30% 98%)" };
   try {
     const raw = sessionStorage.getItem(SESSION_AVATAR_KEY);
@@ -312,10 +329,12 @@ function getOrCreateSessionAvatarColors(): SessionAvatarColors {
   return c;
 }
 
+// Une seule metrique agregee : l'indice moyen de qualite de l'air.
 const STAT_CARDS = [
   { key: "air", label: "Qualité de l'air", unit: "indice moyen", icon: Wind, color: "orange", glow: "shadow-orange-500/20" },
 ] as const;
 
+// Palette Tailwind reutilisee par les cartes de statistiques.
 const COLOR_MAP: Record<string, { bg: string; text: string; border: string }> = {
   emerald: { bg: "bg-emerald-500/15", text: "text-emerald-400", border: "border-emerald-500/20" },
   orange:  { bg: "bg-orange-500/15",  text: "text-orange-400",  border: "border-orange-500/20" },
@@ -325,37 +344,51 @@ const COLOR_MAP: Record<string, { bg: string; text: string; border: string }> = 
 };
 
 export default function DashboardPage() {
+  // Navigation, theme et onglet actif.
   const router = useRouter();
   const { setTheme, theme } = useTheme();
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedSensorId, setSelectedSensorId] = useState<string | null>(null);
+
+  // Donnees du fablab courant et statut global.
   const [schoolName, setSchoolName] = useState("");
   const [airStatus, setAirStatus] = useState<AirStatus>("Optimal");
   const [currentSchool, setCurrentSchool] = useState<School | null>(null);
   const [chartPeriod, setChartPeriod] = useState<"live" | "10m">("live");
+
+  // Notifications locales du dashboard.
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const notifFablabRef = useRef<string | null>(null);
   const notifBaselineRef = useRef<{ air: AirStatus; sensors: Record<string, SensorData["status"]> } | null>(null);
+
+  // Edition locale de l'ordre et des noms de capteurs avant sauvegarde.
   const [isEditingSensors, setIsEditingSensors] = useState(false);
   const isEditingSensorsRef = useRef(false);
   const [localSensors, setLocalSensors] = useState<SensorData[]>([]);
+
+  // Etat UI general et historique des mesures.
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<string>("");
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "success" | "error">("idle");
   const [historyData, setHistoryData] = useState<AirHistoryRow[]>([]);
   const [tenMinSeries, setTenMinSeries] = useState<TenMinRow[]>([]);
+
+  // Accumulateur mutable pour construire la moyenne par tranche de 10 minutes.
   const tenMinCtxRef = useRef<{ bucket: number | null; sums: Record<string, { sum: number; count: number }> }>({
     bucket: null,
     sums: {},
   });
   const lastFablabIdRef = useRef<string | null>(null);
+
+  // Personnel et utilisateur connecte.
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [isLoadingPersonnel, setIsLoadingPersonnel] = useState(false);
   const [loggedUserName, setLoggedUserName] = useState("");
   const [sessionAvatar, setSessionAvatar] = useState<SessionAvatarColors | null>(null);
   // Password modal
+  // Etat complet de la modale de changement de mot de passe.
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNew, setPwNew] = useState("");
@@ -370,10 +403,12 @@ export default function DashboardPage() {
   const notifPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Donne a `loadSchoolData` la derniere valeur d'edition sans recreer le callback.
     isEditingSensorsRef.current = isEditingSensors;
   }, [isEditingSensors]);
 
   const loadSchoolData = useCallback(async (isManual = false) => {
+    // Lit le fablab courant depuis le cookie et recharge ses capteurs.
     const name = document.cookie
       .split("; ")
       .find((row) => row.startsWith("school_name="))
@@ -386,6 +421,7 @@ export default function DashboardPage() {
         const allSchools = await fetchFablabs();
         const school = allSchools.find((s) => s.name === decodedName);
         if (school) {
+          // Quand on change de fablab, on repart avec des historiques propres.
           if (lastFablabIdRef.current !== school.id) {
             lastFablabIdRef.current = school.id;
             tenMinCtxRef.current = { bucket: null, sums: {} };
@@ -396,6 +432,7 @@ export default function DashboardPage() {
           setAirStatus(school.status);
           setCurrentSchool(school);
           if (isEditingSensorsRef.current) {
+            // Pendant l'edition, on garde l'ordre local mais on met a jour les valeurs live.
             setLocalSensors((prev) => {
               const byId = new Map(school.sensors.map((s) => [s.id, s]));
               return prev.map((s) => {
@@ -405,6 +442,7 @@ export default function DashboardPage() {
               });
             });
           } else {
+            // Hors edition, l'ordre vient directement de la base.
             setLocalSensors(school.sensors);
           }
           const now = new Date();
@@ -412,6 +450,7 @@ export default function DashboardPage() {
           const dateStr = now.toLocaleDateString("fr-FR");
           setLastRefreshAt(timestamp);
           if (school.sensors.length > 0) {
+            // Capture une mesure par capteur pour alimenter les graphiques.
             const values: Record<string, number> = {};
             school.sensors.forEach((sensor) => {
               if (sensor.airQualite != null && Number.isFinite(sensor.airQualite)) {
@@ -422,6 +461,7 @@ export default function DashboardPage() {
             const fablabId = school.id;
 
             setHistoryData((prev) => {
+              // Fusionne l'ancien historique local avec la nouvelle mesure live.
               let base = prev;
               if (base.length === 0) {
                 base = loadLiveHistory(fablabId);
@@ -436,6 +476,7 @@ export default function DashboardPage() {
             let finalized: TenMinRow | null = null;
 
             if (ctx.bucket !== null && bucket !== ctx.bucket && Object.keys(ctx.sums).length > 0) {
+              // La tranche precedente est finalisee quand on entre dans une nouvelle tranche.
               finalized = {
                 bucketStart: ctx.bucket,
                 time: formatTenMinAxisLabel(ctx.bucket),
@@ -443,10 +484,12 @@ export default function DashboardPage() {
               };
             }
             if (ctx.bucket !== bucket) {
+              // Prepare l'accumulateur de la tranche courante.
               ctx.bucket = bucket;
               ctx.sums = {};
             }
             school.sensors.forEach((sensor) => {
+              // Additionne les valeurs valides pour calculer une moyenne par capteur.
               if (sensor.airQualite == null || !Number.isFinite(sensor.airQualite)) return;
               const id = sensor.id;
               if (!ctx.sums[id]) ctx.sums[id] = { sum: 0, count: 0 };
@@ -456,6 +499,7 @@ export default function DashboardPage() {
             const partial = averagesFromSums(ctx.sums);
 
             setTenMinSeries((prev) => {
+              // Met a jour la serie 10 minutes avec un point partiel pour la tranche en cours.
               let next = prev;
               if (next.length === 0) {
                 next = loadTenMinHistory(fablabId).filter((r) => r.bucketStart < bucket);
@@ -487,12 +531,14 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    // Premier chargement puis refresh automatique toutes les secondes.
     loadSchoolData();
     const intervalId = window.setInterval(() => loadSchoolData(), 1_000);
     return () => window.clearInterval(intervalId);
   }, [loadSchoolData]);
 
   useEffect(() => {
+    // Nom affiche dans le profil, depuis le cookie lisible pose au login.
     const rawName = getClientCookie("user_name");
     if (rawName) {
       try {
@@ -504,10 +550,12 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    // Cree une couleur d'avatar stable pour la session courante.
     setSessionAvatar(getOrCreateSessionAvatarColors());
   }, []);
 
   useEffect(() => {
+    // Ferme le panneau notifications au clic exterieur.
     if (!isNotificationsOpen) return;
     const onPointerDown = (e: PointerEvent) => {
       const n = e.target as Node;
@@ -520,6 +568,7 @@ export default function DashboardPage() {
   }, [isNotificationsOpen]);
 
   useEffect(() => {
+    // Charge le personnel seulement quand l'onglet est ouvert.
     if (activeTab !== "personnel") return;
     const schoolId = document.cookie.split("; ").find((r) => r.startsWith("school_id="))?.split("=")[1];
     if (!schoolId) return;
@@ -535,11 +584,13 @@ export default function DashboardPage() {
   }, [activeTab]);
 
   useEffect(() => {
+    // Detecte les changements de statut et cree des notifications locales.
     if (!currentSchool?.id) return;
     const sensorsMap = Object.fromEntries(currentSchool.sensors.map((s) => [s.id, s.status]));
     const snapshot = { air: airStatus, sensors: { ...sensorsMap } };
 
     if (notifFablabRef.current !== currentSchool.id) {
+      // Nouvelle salle : initialise la baseline sans notifier.
       notifFablabRef.current = currentSchool.id;
       notifBaselineRef.current = snapshot;
       setNotifications(loadDashboardNotifications(currentSchool.id));
@@ -561,6 +612,7 @@ export default function DashboardPage() {
     const newItems: DashboardNotification[] = [];
 
     if (prev.air !== airStatus) {
+      // Notification globale quand la moyenne change de niveau.
       newItems.push({
         id: newNotificationId(),
         title: "État de la salle",
@@ -572,6 +624,7 @@ export default function DashboardPage() {
     }
 
     currentSchool.sensors.forEach((s) => {
+      // Notification specifique quand un capteur entre en zone danger.
       const was = prev.sensors[s.id];
       if (was !== "danger" && s.status === "danger") {
         newItems.push({
@@ -597,6 +650,7 @@ export default function DashboardPage() {
     })();
 
     if (prev.air !== airStatus) {
+      // Propagation serveur pour notifier les membres rattaches au fablab.
       fetch("/api/notifications/air-quality", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -610,6 +664,7 @@ export default function DashboardPage() {
     }
 
     setNotifications((prevList) => {
+      // Les plus recentes en premier, avec persistance locale.
       const next = [...newItems, ...prevList].slice(0, NOTIF_MAX);
       saveDashboardNotifications(currentSchool.id, next);
       return next;
@@ -617,6 +672,7 @@ export default function DashboardPage() {
   }, [currentSchool, airStatus]);
 
   const handleMoveSensor = (index: number, direction: "up" | "down") => {
+    // Deplace un capteur dans l'ordre local avant sauvegarde.
     const newSensors = [...localSensors];
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= newSensors.length) return;
@@ -624,20 +680,24 @@ export default function DashboardPage() {
     setLocalSensors(newSensors);
   };
   const handleRenameSensor = (id: string, newName: string) => {
+    // Renomme uniquement dans l'etat local jusqu'au bouton Enregistrer.
     setLocalSensors((prev) => prev.map((s) => (s.id === id ? { ...s, name: newName } : s)));
   };
 
+  // Source d'affichage : brouillon local en edition, donnees base sinon.
   const displaySensors = useMemo(
     () => (isEditingSensors ? localSensors : currentSchool?.sensors) ?? [],
     [isEditingSensors, localSensors, currentSchool?.sensors],
   );
 
+  // Capteur ouvert dans l'onglet detail.
   const selectedSensor = useMemo(
     () => (selectedSensorId ? displaySensors.find((s) => s.id === selectedSensorId) ?? null : null),
     [displaySensors, selectedSensorId],
   );
 
   const saveSensorsOrder = async () => {
+    // Persiste ordre et noms vers l'API serveur.
     if (!currentSchool) return;
     setSavingLayout(true);
     try {
@@ -667,12 +727,14 @@ export default function DashboardPage() {
   const statusColors = getStatusColor(airStatus);
   const statusPalette = getStatusPalette(airStatus);
 
+  // Moyenne courante de l'indice air sur les capteurs valides.
   const avgAir = useMemo(() => {
     const list = displaySensors.map((s) => s.airQualite).filter((v): v is number => v != null && Number.isFinite(v));
     if (list.length === 0) return null;
     return list.reduce((a, b) => a + b, 0) / list.length;
   }, [displaySensors]);
 
+  // Donnees aplaties pour Recharts : une colonne par id de capteur.
   const historyChartData = useMemo(
     () =>
       historyData.map((row) => ({
@@ -683,6 +745,7 @@ export default function DashboardPage() {
     [historyData],
   );
 
+  // Meme format pour les points agreges toutes les 10 minutes.
   const tenMinChartData = useMemo(
     () =>
       tenMinSeries.map((r) => ({
@@ -694,6 +757,7 @@ export default function DashboardPage() {
   );
 
   const chartYMax = useMemo(() => {
+    // Axe Y dynamique mais borne pour eviter un graphe ecrase.
     let m = AIR_INDEX_DANGER_MIN + 24;
     historyChartData.forEach((row) => {
       const r = row as Record<string, number | string | undefined>;
@@ -706,6 +770,7 @@ export default function DashboardPage() {
   }, [historyChartData, displaySensors]);
 
   const chartYMax10m = useMemo(() => {
+    // Axe Y adapte a la vue agregee.
     let m = AIR_INDEX_DANGER_MIN + 24;
     tenMinChartData.forEach((row) => {
       const r = row as Record<string, number | string | undefined>;
@@ -718,6 +783,7 @@ export default function DashboardPage() {
   }, [tenMinChartData, displaySensors]);
 
   const healthTips = useMemo(() => {
+    // Conseils textuels adaptes au niveau moyen actuel.
     if (avgAir === null) {
       return {
         niveauTip:
@@ -747,12 +813,14 @@ export default function DashboardPage() {
   }, [avgAir]);
 
   const csvEscape = (cell: string | number) => {
+    // Echappe les cellules CSV contenant guillemets, virgules ou retours ligne.
     const s = String(cell);
     if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
 
   const handleExportCSV = () => {
+    // Construit et telecharge un CSV depuis l'historique local du navigateur.
     if (!currentSchool) return;
     const sensorsOrdered = displaySensors;
     const header = ["Date", "Heure", ...sensorsOrdered.map((s) => s.name)].map(csvEscape).join(",");
@@ -788,6 +856,7 @@ export default function DashboardPage() {
   };
 
   const handleLogout = async () => {
+    // Nettoie l'avatar de session puis detruit les cookies cote serveur.
     try {
       sessionStorage.removeItem(SESSION_AVATAR_KEY);
     } catch {
@@ -799,6 +868,7 @@ export default function DashboardPage() {
   };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
+    // Validation front puis appel de la route de changement de mot de passe.
     e.preventDefault();
     if (pwNew !== pwConfirm) { setPwError("Les mots de passe ne correspondent pas."); return; }
     if (pwNew.length < 6) { setPwError("Le mot de passe doit contenir au moins 6 caractères."); return; }
@@ -824,6 +894,7 @@ export default function DashboardPage() {
   };
 
   const closePasswordModal = () => {
+    // Remet la modale dans son etat initial.
     setShowPasswordModal(false);
     setPwError("");
     setPwCurrent(""); setPwNew(""); setPwConfirm("");
@@ -831,11 +902,13 @@ export default function DashboardPage() {
   };
 
   const qualityScore =
+    // Score visuel inversement proportionnel a l'indice moyen.
     avgAir == null
       ? 0
       : Math.round(Math.max(0, Math.min(100, 100 - (avgAir / (AIR_INDEX_DANGER_MIN * 1.35)) * 100)));
 
   const isDark = theme === "dark";
+  // Styles Recharts synchronises avec le theme courant.
   const chartGridColor = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)";
   const chartTickStyle = { fontSize: 9, fill: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.4)" };
   const chartTooltipStyle = isDark

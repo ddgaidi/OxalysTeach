@@ -4,6 +4,7 @@ export function proxy(request: NextRequest) {
   // The matcher below already excludes /api/* and static files.
   // Only page routes reach this function — protect them with a session check.
   if (!request.cookies.has("auth_token")) {
+    // Sans cookie de session, toutes les pages protegees repartent vers /login.
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     return NextResponse.redirect(loginUrl);

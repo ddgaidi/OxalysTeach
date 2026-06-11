@@ -13,6 +13,7 @@ type PersonnelFablabRow = {
   created_at: string | null;
 };
 
+// Ligne issue de `membre`, utilisee pour completer le personnel quand l'ancienne table est incomplete.
 type MemberPersonnelRow = {
   id: string;
   nom: string | null;
@@ -52,10 +53,12 @@ export type FablabPersonnel = {
 };
 
 function cleanText(value: string | null | undefined): string {
+  // Evite d'exposer `null` ou des espaces parasites dans l'UI.
   return (value ?? "").trim();
 }
 
 function normalizeIdentity(value: string): string {
+  // Cle de comparaison robuste pour dedoublonner les personnes.
   return value
     .trim()
     .normalize("NFD")
@@ -64,6 +67,7 @@ function normalizeIdentity(value: string): string {
 }
 
 function identityKey(person: { id: string; role: string; email?: string | null; prenom: string; nom: string }): string {
+  // Priorite a l'email, puis au nom complet, puis a l'id si aucune identite lisible.
   const email = normalizeIdentity(person.email ?? "");
   if (email) return `${person.role}:email:${email}`;
   const name = normalizeIdentity(`${person.prenom} ${person.nom}`);
@@ -72,6 +76,7 @@ function identityKey(person: { id: string; role: string; email?: string | null; 
 }
 
 function sortByName<T extends { nom: string; prenom: string }>(people: T[]): T[] {
+  // Tri francais stable : nom puis prenom.
   return [...people].sort((a, b) => {
     const byLastName = a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" });
     if (byLastName !== 0) return byLastName;
@@ -82,6 +87,7 @@ function sortByName<T extends { nom: string; prenom: string }>(people: T[]): T[]
 function dedupeByIdentity<T extends { id: string; role: string; email?: string | null; prenom: string; nom: string }>(
   people: T[],
 ): T[] {
+  // Supprime les doublons entre `personnel_fablabs` et `membre`.
   const seen = new Set<string>();
   return people.filter((person) => {
     const key = identityKey(person);
@@ -92,6 +98,7 @@ function dedupeByIdentity<T extends { id: string; role: string; email?: string |
 }
 
 function personnelRowToProfessor(row: PersonnelFablabRow): ProfessorPersonnel {
+  // Projection de l'ancienne table personnel vers le format attendu par l'UI.
   return {
     id: row.id,
     nom: cleanText(row.nom),
@@ -106,6 +113,7 @@ function personnelRowToProfessor(row: PersonnelFablabRow): ProfessorPersonnel {
 }
 
 function personnelRowToTechnician(row: PersonnelFablabRow): TechnicianPersonnel {
+  // Projection d'un technicien issu de `personnel_fablabs`.
   return {
     id: row.id,
     nom: cleanText(row.nom),
@@ -119,6 +127,7 @@ function personnelRowToTechnician(row: PersonnelFablabRow): TechnicianPersonnel 
 }
 
 function memberRowToProfessor(row: MemberPersonnelRow, fablabId: string): ProfessorPersonnel {
+  // Les membres n'ont pas toujours de matiere, on garde un libelle generique.
   return {
     id: row.id,
     nom: cleanText(row.nom),
@@ -133,6 +142,7 @@ function memberRowToProfessor(row: MemberPersonnelRow, fablabId: string): Profes
 }
 
 function memberRowToTechnician(row: MemberPersonnelRow, fablabId: string): TechnicianPersonnel {
+  // Projection d'un technicien rattache directement dans `membre`.
   return {
     id: row.id,
     nom: cleanText(row.nom),
@@ -149,6 +159,7 @@ export async function fetchFablabNameById(
   supabase: SupabaseClient,
   fablabId: string,
 ): Promise<string | null> {
+  // Sert aux controles d'acces qui acceptent parfois l'id ou le nom du fablab.
   const { data, error } = await supabase
     .from("fablab")
     .select("nom")
@@ -167,6 +178,7 @@ export async function fetchPersonnelByFablabId(
   supabase: SupabaseClient,
   fablabId: string,
 ): Promise<FablabPersonnel> {
+  // Fusionne les deux sources de personnel en parallele pour reduire la latence.
   const [personnelResult, membersResult] = await Promise.all([
     supabase
       .from("personnel_fablabs")
@@ -190,17 +202,20 @@ export async function fetchPersonnelByFablabId(
 
   const personnelRows = ((personnelResult.data ?? []) as PersonnelFablabRow[])
     .filter((row) => {
+      // On ne garde que les profils visibles dans OxalysTeach.
       const role = normalizeMemberRole(row.role);
       return role === "professor" || role === "technician";
     });
 
   const memberRows = ((membersResult.data ?? []) as MemberPersonnelRow[])
     .filter((row) => {
+      // Meme filtre pour la table `membre`, qui peut contenir des etudiants.
       const role = normalizeMemberRole(row.role);
       return role === "professor" || role === "technician";
     });
 
   const professors = sortByName(dedupeByIdentity([
+    // Les professeurs viennent d'abord de la table dediee, puis des membres rattaches.
     ...personnelRows
       .filter((row) => normalizeMemberRole(row.role) === "professor")
       .map(personnelRowToProfessor),
@@ -210,6 +225,7 @@ export async function fetchPersonnelByFablabId(
   ]));
 
   const technicians = sortByName(dedupeByIdentity([
+    // Meme fusion pour les techniciens.
     ...personnelRows
       .filter((row) => normalizeMemberRole(row.role) === "technician")
       .map(personnelRowToTechnician),

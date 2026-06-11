@@ -12,6 +12,7 @@ type Body = {
  * Phase temporaire sur `placement` pour éviter les conflits de contrainte unique lors des permutations.
  */
 export async function POST(req: NextRequest) {
+  // Le dashboard envoie la liste ordonnee des stations modifiees.
   const body = (await req.json()) as Body;
   const { fablabId, stations } = body ?? {};
 
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
   }
 
+  // Validation stricte avant toute ecriture en base.
   for (const s of stations) {
     if (!Number.isFinite(s.id) || typeof s.nom !== "string") {
       return NextResponse.json({ error: "Données station invalides" }, { status: 400 });
@@ -28,8 +30,10 @@ export async function POST(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  // Ecriture serveur avec service role si disponible.
   const supabase = createClient(supabaseUrl, serviceKey ?? anonKey);
 
+  // Le membre doit appartenir au fablab modifie, sauf admin.
   const auth = await fetchRequestMember(supabase, req).catch((error) => {
     console.error("[stations/layout] membre query error:", error);
     return null;
@@ -39,8 +43,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Non autorisÃ©" }, { status: 403 });
   }
 
+  // Phase temporaire : evite les collisions si `placement` a une contrainte unique.
   const tempBase = 1_000_000;
 
+  // 1. Eloigne toutes les stations de leurs positions finales.
   for (let i = 0; i < stations.length; i++) {
     const { error } = await supabase
       .from("station")
@@ -53,6 +59,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 2. Applique l'ordre final et les nouveaux noms.
   for (let i = 0; i < stations.length; i++) {
     const s = stations[i];
     const nom = s.nom.trim() || "Station";

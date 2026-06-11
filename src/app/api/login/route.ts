@@ -10,6 +10,7 @@ type LoginPayload = {
   schoolName?: string;
 };
 
+// Pose tous les cookies necessaires a la navigation apres connexion.
 function setCookies(
   response: NextResponse,
   {
@@ -32,6 +33,7 @@ function setCookies(
     userEmail?: string;
   },
 ) {
+  // Options communes : session de 8h, disponible sur tout le site.
   const base = {
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
@@ -39,7 +41,9 @@ function setCookies(
     maxAge: 60 * 60 * 8,
   };
 
+  // `auth_token` reste httpOnly car il sert uniquement au proxy de protection.
   response.cookies.set("auth_token", token, { ...base, httpOnly: true });
+  // Les autres cookies sont lisibles cote client pour personnaliser l'interface.
   response.cookies.set("school_id", schoolId, { ...base, httpOnly: false });
   response.cookies.set("school_name", schoolName, { ...base, httpOnly: false });
   response.cookies.set("user_name", userName, { ...base, httpOnly: false });
@@ -50,6 +54,7 @@ function setCookies(
 }
 
 export async function POST(request: Request) {
+  // Le formulaire envoie l'identite Supabase et le fablab selectionne.
   const body = (await request.json()) as LoginPayload;
   const { username, password, schoolId, schoolName } = body;
 
@@ -76,8 +81,10 @@ export async function POST(request: Request) {
 
     const authUserId = authData.user.id;
 
+    // Le client service permet de relire la table `membre` meme si les RLS sont strictes.
     const supabaseService = createClient(supabaseUrl, serviceKey ?? anonKey);
 
+    // Verifie que l'utilisateur Auth existe aussi comme membre OxalysTeach.
     const member = await fetchMemberByAuthId(supabaseService, authUserId);
     if (!member) {
       console.error("[login] User authenticated but not found in membre:", authUserId);
@@ -88,6 +95,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "not_staff" }, { status: 403 });
     }
 
+    // Un membre non admin ne peut ouvrir que son propre fablab.
     const canAccessSelectedSchool =
       canAccessFablab(member.appRole, member.fablab_ref, schoolId) ||
       canAccessFablab(member.appRole, member.fablab_ref, schoolName);
@@ -99,6 +107,7 @@ export async function POST(request: Request) {
       );
     }
 
+    // Nom affiche dans l'interface et stocke dans les cookies lisibles.
     const fullName = `${member.prenom ?? ""} ${member.nom ?? ""}`.trim() || authData.user.email || username;
     const response = NextResponse.json({ ok: true, role: member.appRole });
     setCookies(response, {

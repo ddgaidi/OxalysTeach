@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
+/* Active la variante `dark:` quand un parent porte la classe `.dark`. */
 @custom-variant dark (&:is(.dark *));
 
+/* Tokens Tailwind relies aux variables CSS de theme. */
 @theme {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -37,6 +39,7 @@
 }
 
 @layer base {
+  /* Theme clair par defaut. */
   :root {
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
@@ -56,6 +59,7 @@
     --radius: 0.5rem;
   }
 
+  /* Theme sombre applique par le ThemeProvider. */
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
@@ -76,9 +80,11 @@
 }
 
 @layer base {
+  /* Styles de base partages par tous les elements. */
   * {
     @apply border-border outline-ring/50;
   }
+  /* Curseur coherent sur les elements interactifs. */
   :where(
     a[href],
     button:not(:disabled),
@@ -95,14 +101,16 @@
   ) {
     cursor: pointer;
   }
+  /* Curseur desactive sur les controles non utilisables. */
   :where(button:disabled, input:disabled, select:disabled, [aria-disabled="true"]) {
     cursor: not-allowed;
   }
+  /* Couleurs de fond/texte alignees avec les tokens Tailwind. */
   body {
     @apply bg-background text-foreground;
   }
 
-  /* Custom scrollbar */
+  /* Barre de scroll custom fine et orange. */
   ::-webkit-scrollbar {
     width: 4px;
     height: 4px;
@@ -124,6 +132,7 @@
   100% { transform: translateX(200%) skewX(-12deg); }
 }
 
+/* Flottement lent pour les halos decoratifs du dashboard. */
 @keyframes float {
   0%, 100% { transform: translateY(0px) translateX(0px) scale(1); }
   25% { transform: translateY(-30px) translateX(10px) scale(1.02); }
@@ -131,48 +140,57 @@
   75% { transform: translateY(-25px) translateX(5px) scale(1.01); }
 }
 
+/* Variante plus lente et horizontale du flottement. */
 @keyframes float-slow {
   0%, 100% { transform: translateY(0px) translateX(0px); }
   33% { transform: translateY(-20px) translateX(-12px); }
   66% { transform: translateY(-10px) translateX(15px); }
 }
 
+/* Halo lumineux orange pour les elements importants. */
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 20px 0px rgba(249, 115, 22, 0.3); }
   50% { box-shadow: 0 0 50px 10px rgba(249, 115, 22, 0.5); }
 }
 
+/* Halo lumineux rouge pour les alertes. */
 @keyframes pulse-glow-red {
   0%, 100% { box-shadow: 0 0 20px 0px rgba(220, 38, 38, 0.3); }
   50% { box-shadow: 0 0 50px 10px rgba(220, 38, 38, 0.5); }
 }
 
+/* Animation du gradient des boutons principaux. */
 @keyframes gradient-shift {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
 }
 
+/* Rotation lente reutilisable. */
 @keyframes spin-slow {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
+/* Trace une ligne de gauche a droite. */
 @keyframes draw-line {
   from { width: 0%; }
   to { width: 100%; }
 }
 
+/* Rotation de bordure pour les effets circulaires. */
 @keyframes border-spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
+/* Apparition verticale douce. */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @layer utilities {
+  /* Classes utilitaires maison pour les animations definies plus haut. */
   .animate-shimmer {
     animation: shimmer 2.5s infinite;
   }
@@ -199,6 +217,7 @@
     animation: fade-up 0.6s ease forwards;
   }
 
+  /* Effets de surface reutilisables. */
   .glass {
     @apply bg-white/5 backdrop-blur-xl border border-white/10;
   }
@@ -206,10 +225,12 @@
     @apply bg-white/80 backdrop-blur-xl border border-white/60;
   }
 
+  /* Texte en gradient Oxalys. */
   .text-gradient {
     @apply text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-red-500 to-rose-500;
   }
 
+  /* Effet de reflet au survol sur les cartes. */
   .card-shine {
     position: relative;
     overflow: hidden;

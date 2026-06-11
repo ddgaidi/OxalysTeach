@@ -7,23 +7,27 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 
 export function Navbar() {
+  // Etat local de navigation : theme, fablab courant, scroll et menu mobile.
   const { setTheme, theme } = useTheme();
   const [schoolName, setSchoolName] = React.useState("");
   const [scrolled, setScrolled] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
 
   React.useEffect(() => {
+    // Lit le nom du fablab depuis le cookie pour personnaliser la barre.
     const name = document.cookie
       .split("; ")
       .find((row) => row.startsWith("school_name="))
       ?.split("=")[1];
     if (name) setSchoolName(decodeURIComponent(name));
 
+    // Passe la navbar en fond floute apres un leger scroll.
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Liens partages par la navigation desktop et mobile.
   const navLinks = [
     { href: "/", label: "Accueil", icon: Home },
     { href: "#teachers", label: "Équipe", icon: Users },
@@ -48,6 +52,7 @@ export function Navbar() {
           className="flex items-center gap-4"
         >
           <Link href="/" className="group relative flex items-center gap-2">
+            {/* Deux logos pour garder le contraste en theme clair/sombre. */}
             <img
               src="/oxalys-teach.png"
               alt="OxalysTeach"
@@ -109,7 +114,8 @@ export function Navbar() {
           className="flex items-center gap-2"
         >
           {/* Theme toggle */}
-          <button
+            {/* Bascule clair/sombre globale. */}
+            <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="relative h-9 w-9 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-all duration-200"
             aria-label="Changer de thème"
@@ -119,6 +125,7 @@ export function Navbar() {
           </button>
 
           {/* Logout */}
+          {/* Deconnexion serveur puis retour vers la page login. */}
           <button
             onClick={async () => {
               await fetch("/api/logout", { method: "POST" });
@@ -131,6 +138,7 @@ export function Navbar() {
           </button>
 
           {/* Dashboard CTA */}
+          {/* Raccourci persistant vers le dashboard. */}
           <Link
             href="/dashboard"
             className="group relative hidden sm:flex items-center gap-2 h-9 px-5 rounded-full text-sm font-semibold text-white overflow-hidden"
@@ -142,6 +150,7 @@ export function Navbar() {
           </Link>
 
           {/* Mobile menu button */}
+          {/* Bouton hamburger anime pour mobile. */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="md:hidden h-9 w-9 flex flex-col items-center justify-center gap-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-white/10 transition-all"

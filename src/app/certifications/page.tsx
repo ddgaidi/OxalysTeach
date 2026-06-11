@@ -22,6 +22,7 @@ type CertificationRequest = {
 };
 
 export default function CertificationsPage() {
+  // Etat de la page : donnees, action en cours et message d'erreur.
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const [requests, setRequests] = useState<CertificationRequest[]>([]);
@@ -29,10 +30,12 @@ export default function CertificationsPage() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
+  // Separe les demandes a traiter de l'historique.
   const pending = useMemo(() => requests.filter((request) => request.status === "pending"), [requests]);
   const reviewed = useMemo(() => requests.filter((request) => request.status !== "pending"), [requests]);
 
   async function load() {
+    // Recupere les demandes autorisees pour le membre connecte.
     setLoading(true);
     setError("");
     try {
@@ -49,6 +52,7 @@ export default function CertificationsPage() {
   }
 
   async function review(requestId: string, action: "approve" | "decline") {
+    // Envoie la decision au serveur puis recharge la liste.
     setActionId(requestId);
     setError("");
     try {
@@ -69,9 +73,11 @@ export default function CertificationsPage() {
   }
 
   useEffect(() => {
+    // Chargement initial au montage de la page.
     void load();
   }, []);
 
+  // Classes adaptees au theme courant.
   const pageBg = isDark ? "bg-[#05050f] text-white" : "bg-slate-100 text-slate-900";
   const card = isDark ? "bg-black/30 border-white/8" : "bg-white border-slate-200";
 
@@ -101,12 +107,14 @@ export default function CertificationsPage() {
           </div>
         </div>
 
+        {/* Erreur API affichee au-dessus de la liste. */}
         {error && (
           <div className="mb-5 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
             {error}
           </div>
         )}
 
+        {/* Liste principale des demandes en attente. */}
         <section className={`overflow-hidden rounded-3xl border shadow-sm ${card}`}>
           <div className="border-b border-slate-200 p-5 dark:border-white/5">
             <h2 className="text-sm font-black">Demandes recues</h2>
@@ -162,6 +170,7 @@ export default function CertificationsPage() {
           )}
         </section>
 
+        {/* Historique court des demandes deja traitees. */}
         {reviewed.length > 0 && (
           <section className={`mt-6 overflow-hidden rounded-3xl border ${card}`}>
             <div className="border-b border-slate-200 p-5 dark:border-white/5">

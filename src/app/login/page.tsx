@@ -25,6 +25,7 @@ const ITIS_ADMIN_EMAIL = "admin@oxalys.fr";
 const ITIS_DEMO_PASSWORD = "1234";
 
 export default function LoginPage() {
+  // Etat du formulaire, du theme et des interactions visuelles.
   const { setTheme, theme } = useTheme();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -38,9 +39,11 @@ export default function LoginPage() {
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
 
+  // Motion values utilisees pour incliner la carte au mouvement de souris.
   const rotateX = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
   const rotateY = useSpring(useMotionValue(0), { stiffness: 100, damping: 30 });
 
+  // Liste triee pour rendre la selection de fablab plus lisible.
   const sortedSchools = useMemo(
     () => [...availableSchools].sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" })),
     [availableSchools],
@@ -48,6 +51,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     async function loadSchools() {
+      // Les fablabs viennent de Supabase via le helper metier.
       try {
         const fablabs = await fetchFablabs();
         setAvailableSchools(fablabs);
@@ -61,6 +65,7 @@ export default function LoginPage() {
   }, []);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Convertit la position souris en rotation douce de la carte.
     if (!cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - rect.width / 2;
@@ -70,11 +75,13 @@ export default function LoginPage() {
   };
 
   const handleMouseLeave = () => {
+    // Remet la carte a plat quand la souris quitte le formulaire.
     rotateX.set(0);
     rotateY.set(0);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
+    // Validation locale minimale avant l'appel API.
     e.preventDefault();
     if (!selectedSchool) {
       setError("Veuillez sélectionner un fablab.");
@@ -83,6 +90,7 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
 
+    // La route API verifie Supabase Auth, les roles et le fablab choisi.
     const response = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -95,6 +103,7 @@ export default function LoginPage() {
     });
 
     if (!response.ok) {
+      // Les messages d'erreur sont adaptes selon le refus renvoye par le serveur.
       const payload = await response.json().catch(() => null) as { error?: string } | null;
       if (payload?.error === "not_staff") {
         setError("Ce compte n'a pas acces a Oxalys Teach.");
@@ -111,6 +120,7 @@ export default function LoginPage() {
 
     setIsLoading(false);
     if (typeof window !== "undefined") {
+      // Si la connexion vient du bouton Moniteur, on enchaine vers la passation monitor.
       const next = new URLSearchParams(window.location.search).get("next");
       if (next === "monitor") {
         window.location.assign("/api/monitor-redirect");
@@ -143,6 +153,7 @@ export default function LoginPage() {
       {/* Grid overlay */}
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(0,0,0,.04)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,.04)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.015)_1px,transparent_1px)] bg-[size:60px_60px]" />
 
+      {/* Bascule rapide du theme sur l'ecran de connexion. */}
       {/* Theme toggle */}
       <div className="absolute top-4 right-4 z-10">
         <button
@@ -154,6 +165,7 @@ export default function LoginPage() {
         </button>
       </div>
 
+      {/* Carte de connexion avec effet d'inclinaison. */}
       {/* Main card */}
       <motion.div
         ref={cardRef}
@@ -196,6 +208,7 @@ export default function LoginPage() {
             onSubmit={handleLogin}
             className="space-y-5"
           >
+            {/* Message d'erreur du formulaire. */}
             {/* Error */}
             <AnimatePresence>
               {error && (
@@ -211,6 +224,7 @@ export default function LoginPage() {
               )}
             </AnimatePresence>
 
+            {/* Select custom pour choisir l'etablissement cible. */}
             {/* Fablab */}
             <div className="space-y-1.5 relative">
               <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
@@ -285,6 +299,7 @@ export default function LoginPage() {
               </p>
             </div>
 
+            {/* Champ e-mail Supabase Auth. */}
             {/* E-mail */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
@@ -310,6 +325,7 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Champ mot de passe Supabase Auth. */}
             {/* Password */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 ml-1">
@@ -334,6 +350,7 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Bouton d'envoi avec etat de chargement. */}
             {/* Submit */}
             <button
               type="submit"

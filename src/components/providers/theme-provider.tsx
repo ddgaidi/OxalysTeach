@@ -28,15 +28,18 @@ type UseThemeProps = {
 
 const ThemeContext = React.createContext<UseThemeProps | undefined>(undefined);
 
+// Themes connus par defaut et requete media qui suit le systeme.
 const FALLBACK_THEMES = ["light", "dark"];
 const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
 
 function getSystemTheme(): "light" | "dark" {
+  // Cote serveur, on choisit light pour avoir un rendu initial stable.
   if (typeof window === "undefined") return "light";
   return window.matchMedia(SYSTEM_THEME_QUERY).matches ? "dark" : "light";
 }
 
 function disableTransitionsTemporarily() {
+  // Evite les flashs d'animation quand on bascule entre light/dark.
   const style = document.createElement("style");
   style.appendChild(
     document.createTextNode(
@@ -66,11 +69,13 @@ function applyThemeToDom({
   enableColorScheme: boolean;
   defaultTheme: string;
 }) {
+  // Applique le theme resolu sur `<html>` via une classe ou un attribut data.
   const root = document.documentElement;
   const attributes = Array.isArray(attribute) ? attribute : [attribute];
   const mappedTheme = value?.[activeTheme] ?? activeTheme;
 
   for (const attr of attributes) {
+    // `class` retire d'abord tous les themes connus pour eviter les conflits.
     if (attr === "class") {
       const mappedThemeList = themes.map((themeName) => value?.[themeName] ?? themeName);
       root.classList.remove(...mappedThemeList);
@@ -83,6 +88,7 @@ function applyThemeToDom({
   }
 
   if (!enableColorScheme) return;
+  // Informe aussi le navigateur pour les controles natifs (inputs, scrollbars).
   const colorScheme =
     activeTheme === "system"
       ? getSystemTheme()
@@ -106,10 +112,12 @@ export function ThemeProvider({
   attribute = "data-theme",
   value,
 }: ThemeProviderProps) {
+  // `theme` est le choix utilisateur ; `systemTheme` suit la preference OS.
   const [theme, setThemeState] = React.useState<string>(defaultTheme);
   const [systemTheme, setSystemTheme] = React.useState<"light" | "dark">("light");
 
   React.useEffect(() => {
+    // Ecoute les changements de theme systeme.
     setSystemTheme(getSystemTheme());
     const media = window.matchMedia(SYSTEM_THEME_QUERY);
     const onChange = () => setSystemTheme(media.matches ? "dark" : "light");
@@ -118,6 +126,7 @@ export function ThemeProvider({
   }, []);
 
   React.useEffect(() => {
+    // Recharge le theme choisi precedemment dans localStorage.
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
@@ -131,10 +140,12 @@ export function ThemeProvider({
   }, [defaultTheme, storageKey]);
 
   const resolvedTheme =
+    // Le theme `system` est converti en `light` ou `dark` avant application.
     (forcedTheme ?? theme) === "system" && enableSystem ? systemTheme : (forcedTheme ?? theme);
   const resolvedThemeSafe: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
 
   React.useEffect(() => {
+    // Synchronise le DOM a chaque changement de theme ou de configuration.
     const themeToApply = forcedTheme ?? theme;
     const activeTheme = themeToApply === "system" && enableSystem ? systemTheme : themeToApply;
 
@@ -163,6 +174,7 @@ export function ThemeProvider({
 
   const setTheme: React.Dispatch<React.SetStateAction<string>> = React.useCallback(
     (nextTheme) => {
+      // Sauvegarde le choix utilisateur puis met a jour le state React.
       setThemeState((currentTheme) => {
         const valueToSet = typeof nextTheme === "function" ? nextTheme(currentTheme) : nextTheme;
         try {
@@ -177,6 +189,7 @@ export function ThemeProvider({
   );
 
   const contextValue = React.useMemo<UseThemeProps>(
+    // Valeur partagee aux composants via `useTheme`.
     () => ({
       theme,
       setTheme,
@@ -192,6 +205,7 @@ export function ThemeProvider({
 }
 
 export function useTheme(): UseThemeProps {
+  // Hook tolerant : renvoie un fallback plutot que planter hors provider.
   const context = React.useContext(ThemeContext);
   if (context) return context;
   return {

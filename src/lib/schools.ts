@@ -29,6 +29,7 @@ export function parseAirQualite(raw: unknown): number | null {
 }
 
 function parsePlacement(raw: unknown): number {
+  // Le placement peut arriver sous forme texte ou nombre depuis Supabase.
   if (raw == null || raw === "") return 0;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
   if (typeof raw === "string") {
@@ -48,6 +49,7 @@ export interface SensorData {
   status: "good" | "medium" | "warning" | "danger" | "offline";
 }
 
+// Format expose aux pages : un fablab avec son statut calcule et ses capteurs.
 export interface School {
   id: string;
   name: string;
@@ -70,6 +72,7 @@ interface FablabRow {
   image: string | null;
 }
 
+// Ligne brute `station` telle que lue en base.
 interface StationRow {
   id: number;
   fablab_id: string;
@@ -96,6 +99,7 @@ export interface Technician {
 }
 
 export async function fetchTeachers(fablabId: string): Promise<Teacher[]> {
+  // Lecture directe des professeurs d'un fablab pour les anciens composants.
   const { data, error } = await supabase
     .from("personnel_fablabs")
     .select("id, nom, prenom, matiere, email")
@@ -112,6 +116,7 @@ export async function fetchTeachers(fablabId: string): Promise<Teacher[]> {
 }
 
 export async function fetchTechnicians(fablabId: string): Promise<Technician[]> {
+  // Lecture directe des techniciens d'un fablab pour les anciens composants.
   const { data, error } = await supabase
     .from("personnel_fablabs")
     .select("id, nom, prenom")
@@ -128,6 +133,7 @@ export async function fetchTechnicians(fablabId: string): Promise<Technician[]> 
 }
 
 export const schools: School[] = [
+  // Donnees de demonstration conservees comme fallback visuel/documentaire.
   {
     id: "1",
     name: "Lycée Henri IV",
@@ -182,6 +188,7 @@ export const schools: School[] = [
 ];
 
 function parseEquipements(value: FablabRow["equipements"]): string[] {
+  // `equipements` peut etre un tableau Postgres ou une chaine JSON historique.
   if (Array.isArray(value)) return value;
   if (typeof value !== "string") return [];
 
@@ -194,6 +201,7 @@ function parseEquipements(value: FablabRow["equipements"]): string[] {
 }
 
 function getSensorStatus(airQualite: number | null, offline = false): SensorData["status"] {
+  // Traduit l'indice numerique en statut utilise par les cartes et graphiques.
   if (offline || airQualite == null || !Number.isFinite(airQualite)) return "offline";
   if (airQualite >= AIR_INDEX_DANGER_MIN) return "danger";
   if (airQualite >= AIR_INDEX_WARN_MIN) return "warning";
@@ -217,6 +225,7 @@ function computeAirStatus(sensors: SensorData[]): AirStatus {
 }
 
 export async function fetchFablabs(): Promise<School[]> {
+  // Charge les fablabs et stations en parallele, puis regroupe les stations par fablab.
   const [{ data: fablabsData, error: fablabsError }, { data: stationsData, error: stationsError }] = await Promise.all([
     supabase.from("fablab").select("*"),
     supabase.from("station").select("*").order("id", { ascending: true }),
@@ -233,6 +242,7 @@ export async function fetchFablabs(): Promise<School[]> {
   }
 
   const stationsByFablab = (stationsData as StationRow[]).reduce<Record<string, StationRow[]>>((acc, station) => {
+    // Index local pour retrouver rapidement les stations de chaque fablab.
     if (!acc[station.fablab_id]) {
       acc[station.fablab_id] = [];
     }
@@ -241,10 +251,12 @@ export async function fetchFablabs(): Promise<School[]> {
   }, {});
 
   return (fablabsData as FablabRow[]).map((fab) => {
+    // Chaque ligne brute est convertie en objet `School` pret pour l'interface.
     const city = fab.adresse?.split(" · ")[0] || "Inconnu";
     const equipements = parseEquipements(fab.equipements);
     const rawSensors = stationsByFablab[fab.id] ?? [];
     const sortedStations = [...rawSensors].sort((a, b) => {
+      // Les stations avec un placement valide passent d'abord, puis tri par id.
       const pa = parsePlacement(a.placement);
       const pb = parsePlacement(b.placement);
       const oa = pa > 0 ? pa : 999_999;
@@ -254,6 +266,7 @@ export async function fetchFablabs(): Promise<School[]> {
     });
 
     const sensors: SensorData[] = sortedStations.map((station, index) => {
+      // Une station est consideree hors ligne apres 10 secondes sans signal.
       const airQualite = parseAirQualite(station.air_qualite);
       const offline =
         !station.last_seen_at ||
@@ -262,6 +275,7 @@ export async function fetchFablabs(): Promise<School[]> {
       const pl = parsePlacement(station.placement);
       const nomDb = typeof station.nom === "string" ? station.nom.trim() : "";
       const fromEquip = pl > 0 ? equipements[pl - 1] : undefined;
+      // Priorite : nom en base, equipement lie au placement, equipement par index, fallback.
       const name =
         nomDb ||
         (typeof fromEquip === "string" ? fromEquip : undefined) ||
@@ -292,6 +306,7 @@ export async function fetchFablabs(): Promise<School[]> {
 }
 
 export function getStatusColor(status: AirStatus) {
+  // Classes Tailwind utilisees dans les badges/cartes selon le statut global.
   switch (status) {
     case "Optimal":
       return {
@@ -351,6 +366,7 @@ export function getStatusColor(status: AirStatus) {
 }
 
 export function getStatusPalette(status: AirStatus) {
+  // Valeurs CSS inline pour les graphes et les elements animes.
   switch (status) {
     case "Optimal":
       return { color: "#22c55e", soft: "rgba(34,197,94,0.14)", gradient: "linear-gradient(135deg,#22c55e,#16a34a)" };
@@ -366,6 +382,7 @@ export function getStatusPalette(status: AirStatus) {
 }
 
 export function getStatusLabel(status: AirStatus) {
+  // Phrase courte affichee a cote du statut global.
   switch (status) {
     case "Optimal":
       return "Indice sous 180 - conditions optimales";

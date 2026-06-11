@@ -28,6 +28,7 @@ const ORDER: Record<AirStatus, number> = {
 };
 
 function shouldNotifyMember(member: MemberRow, from: AirStatus | undefined, to: AirStatus) {
+  // Chaque role a un seuil de notification different pour eviter le bruit.
   const role = normalizeMemberRole(member.role);
   if (role === "admin") return false;
   const changedThreshold = from ? ORDER[from] !== ORDER[to] : true;
@@ -39,12 +40,16 @@ function shouldNotifyMember(member: MemberRow, from: AirStatus | undefined, to: 
 }
 
 export async function POST(request: NextRequest) {
+  // Le dashboard appelle cette route quand le statut global d'air change.
   const body = (await request.json()) as Payload;
   if (!body.fablabId || !body.to) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
   }
 
+  // Client admin pour lire les membres du fablab et pousser la notification.
   const admin = createSupabaseAdminClient();
+
+  // L'appelant doit lui-meme avoir acces au fablab concerne.
   const auth = await fetchRequestMember(admin, request).catch((error) => {
     console.error("[notifications/air-quality] membre query error:", error);
     return null;
@@ -55,9 +60,11 @@ export async function POST(request: NextRequest) {
   }
 
   if (auth.member.appRole === "admin") {
+    // Les admins declenchent parfois la supervision mais ne recoivent pas de notification perso.
     return NextResponse.json({ ok: true, skipped: "admin" });
   }
 
+  // Tous les membres rattaches au fablab sont candidats a la notification.
   const { data: members, error } = await admin
     .from("membre")
     .select("id, fablab_ref, role")
@@ -65,6 +72,7 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Le filtre applique les regles par role et par changement de seuil.
   const recipients = ((members ?? []) as MemberRow[]).filter((member) =>
     shouldNotifyMember(member, body.from, body.to!),
   );
@@ -73,11 +81,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, notified: 0 });
   }
 
+  // Message court stocke directement sur chaque membre pour l'app cliente.
   const title = `Seuil ${body.to}`;
   const message = body.average == null
     ? `Le FabLab est passe en etat ${body.to}.`
     : `Le FabLab est passe en etat ${body.to} avec un indice moyen de ${Math.round(body.average)}.`;
 
+  // Mise a jour en masse des membres destinataires.
   const { error: updateError } = await admin
     .from("membre")
     .update({

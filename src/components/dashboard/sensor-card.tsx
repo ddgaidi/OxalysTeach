@@ -15,6 +15,7 @@ interface SensorCardProps {
 }
 
 export function SensorCard({ name, type, value, unit, status, lastUpdated, compact = false }: SensorCardProps) {
+  // Choisit l'icone selon le type de mesure affiche.
   const getIcon = () => {
     switch (type) {
       case "temp": return <Thermometer className="h-6 w-6" />;
@@ -26,6 +27,7 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
   };
 
   const getStatusColor = () => {
+    // Classes de couleur partagees par l'icone, la bordure et le fond.
     switch (status) {
       case "good": return "bg-green-500/10 text-green-600 border-green-200 dark:border-green-900/30";
       case "medium": return "bg-yellow-500/10 text-yellow-600 border-yellow-200 dark:border-yellow-900/30";
@@ -37,6 +39,7 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
 
   const colors = getStatusColor();
 
+  // Version dense utilisee dans le detail d'un capteur.
   if (compact) {
     return (
       <motion.div
@@ -79,6 +82,7 @@ export function SensorCard({ name, type, value, unit, status, lastUpdated, compa
     );
   }
 
+  // Version carte standard pour une grille de mesures.
   return (
     <motion.div 
       whileHover={{ y: -5 }}
